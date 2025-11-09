@@ -1,0 +1,347 @@
+/**
+ * Modern Main Page - Enterprise Grade
+ * Showcasing all modern components with stunning animations
+ */
+
+"use client";
+
+import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { ModernHeader } from '@/components/layout/ModernHeader';
+import { ModernHero } from '@/components/hero/ModernHero';
+import { ModernChatInterface } from '@/components/chat/ModernChatInterface';
+import { ModernDashboard } from '@/components/dashboard/ModernDashboard';
+import { 
+  GlassCard, 
+  FeatureCard, 
+  AnimatedStatCard, 
+  TiltCard,
+  PricingCard 
+} from '@/components/ui/animated-card';
+import { 
+  GridBackground, 
+  FloatingParticles, 
+  AnimatedGradientMesh,
+  WaveAnimation 
+} from '@/components/ui/background-effects';
+import { PageLoader } from '@/components/ui/loading';
+import { ThemeProvider } from '@/contexts/ThemeContext';
+import { staggerContainer, staggerItem, fadeInUp } from '@/lib/animations';
+import { 
+  Brain, 
+  Eye, 
+  Cpu, 
+  Zap, 
+  Activity, 
+  Shield,
+  Rocket,
+  Globe
+} from 'lucide-react';
+
+export default function ModernHomePage() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeSection, setActiveSection] = useState('hero');
+
+  useEffect(() => {
+    // Simulate initial load
+    setTimeout(() => setIsLoading(false), 2000);
+  }, []);
+
+  if (isLoading) {
+    return <PageLoader />;
+  }
+
+  return (
+    <ThemeProvider>
+      <div className="relative min-h-screen bg-white dark:bg-gray-950 overflow-hidden">
+        <ModernHeader />
+        
+        {/* Hero Section */}
+        <section id="hero" className="relative">
+          <ModernHero />
+        </section>
+
+        {/* Features Section */}
+        <section id="features" className="relative py-24 px-4 sm:px-6 lg:px-8">
+          <GridBackground />
+          
+          <motion.div
+            className="max-w-7xl mx-auto"
+            variants={staggerContainer}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.3 }}
+          >
+            <motion.div variants={staggerItem} className="text-center mb-16">
+              <h2 className="text-4xl md:text-5xl font-bold text-gradient mb-4">
+                Powerful Features
+              </h2>
+              <p className="text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+                Everything you need to build intelligent agent systems
+              </p>
+            </motion.div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[
+                {
+                  icon: <Brain className="w-6 h-6" />,
+                  title: 'AI Orchestration',
+                  description: 'Coordinate multiple AI agents seamlessly with intelligent task distribution'
+                },
+                {
+                  icon: <Eye className="w-6 h-6" />,
+                  title: 'Vision Analysis',
+                  description: 'Advanced computer vision capabilities for image and video processing'
+                },
+                {
+                  icon: <Cpu className="w-6 h-6" />,
+                  title: 'Logic Engine',
+                  description: 'Powerful reasoning and decision-making capabilities'
+                },
+                {
+                  icon: <Zap className="w-6 h-6" />,
+                  title: 'Real-time Processing',
+                  description: 'Lightning-fast inference powered by Groq'
+                }
+              ].map((feature, index) => (
+                <motion.div key={index} variants={staggerItem}>
+                  <FeatureCard
+                    icon={feature.icon}
+                    title={feature.title}
+                    description={feature.description}
+                  />
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        </section>
+
+        {/* Chat Demo Section */}
+        <section id="chat" className="relative py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-white to-gray-50 dark:from-gray-950 dark:to-gray-900">
+          <AnimatedGradientMesh />
+          
+          <motion.div
+            className="max-w-5xl mx-auto"
+            initial={{ opacity: 0, y: 40 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8 }}
+          >
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold text-gradient mb-4">
+                Experience the Future of AI Chat
+              </h2>
+              <p className="text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+                Interact with our intelligent agents in real-time
+              </p>
+            </div>
+
+            <ModernChatInterface />
+          </motion.div>
+        </section>
+
+        {/* Dashboard Section */}
+        <section id="dashboard" className="relative">
+          <ModernDashboard />
+        </section>
+
+        {/* Stats Section */}
+        <section className="relative py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950">
+          <FloatingParticles count={20} />
+          
+          <motion.div
+            className="max-w-7xl mx-auto"
+            variants={staggerContainer}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.3 }}
+          >
+            <motion.div variants={staggerItem} className="text-center mb-16">
+              <h2 className="text-4xl md:text-5xl font-bold text-gradient mb-4">
+                Trusted by Innovators
+              </h2>
+              <p className="text-xl text-gray-600 dark:text-gray-400">
+                Join thousands of developers building the future
+              </p>
+            </motion.div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {[
+                { value: '50K+', label: 'Active Users' },
+                { value: '1M+', label: 'Tasks Processed' },
+                { value: '99.9%', label: 'Uptime' },
+                { value: '45ms', label: 'Avg Response' }
+              ].map((stat, index) => (
+                <motion.div
+                  key={index}
+                  variants={staggerItem}
+                  whileHover={{ scale: 1.05, y: -5 }}
+                >
+                  <TiltCard>
+                    <div className="text-center space-y-2">
+                      <p className="text-4xl font-bold text-gradient">{stat.value}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{stat.label}</p>
+                    </div>
+                  </TiltCard>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        </section>
+
+        {/* Pricing Section */}
+        <section id="pricing" className="relative py-24 px-4 sm:px-6 lg:px-8">
+          <GridBackground gridColor="rgba(168, 85, 247, 0.1)" />
+          
+          <motion.div
+            className="max-w-7xl mx-auto"
+            variants={staggerContainer}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.3 }}
+          >
+            <motion.div variants={staggerItem} className="text-center mb-16">
+              <h2 className="text-4xl md:text-5xl font-bold text-gradient mb-4">
+                Choose Your Plan
+              </h2>
+              <p className="text-xl text-gray-600 dark:text-gray-400">
+                Start free, scale as you grow
+              </p>
+            </motion.div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <motion.div variants={staggerItem}>
+                <PricingCard
+                  name="Starter"
+                  price="$0"
+                  period="/month"
+                  features={[
+                    '5 Active Agents',
+                    '1,000 Tasks/month',
+                    'Basic Support',
+                    'Community Access'
+                  ]}
+                />
+              </motion.div>
+
+              <motion.div variants={staggerItem}>
+                <PricingCard
+                  name="Professional"
+                  price="$49"
+                  period="/month"
+                  features={[
+                    'Unlimited Agents',
+                    '100,000 Tasks/month',
+                    'Priority Support',
+                    'Advanced Analytics',
+                    'Custom Integrations'
+                  ]}
+                  highlighted
+                />
+              </motion.div>
+
+              <motion.div variants={staggerItem}>
+                <PricingCard
+                  name="Enterprise"
+                  price="Custom"
+                  period=""
+                  features={[
+                    'Everything in Pro',
+                    'Unlimited Tasks',
+                    '24/7 Dedicated Support',
+                    'Custom Training',
+                    'SLA Guarantee'
+                  ]}
+                />
+              </motion.div>
+            </div>
+          </motion.div>
+        </section>
+
+        {/* CTA Section */}
+        <section className="relative py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-indigo-600 to-purple-600 overflow-hidden">
+          <WaveAnimation />
+          
+          <motion.div
+            className="relative z-10 max-w-4xl mx-auto text-center"
+            initial={{ opacity: 0, y: 40 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8 }}
+          >
+            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
+              Ready to Get Started?
+            </h2>
+            <p className="text-xl text-white/90 mb-8 max-w-2xl mx-auto">
+              Join the revolution in AI-powered automation. Build smarter, faster, better.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <motion.button
+                whileHover={{ scale: 1.05, y: -2 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-8 py-4 rounded-xl bg-white text-indigo-600 font-semibold shadow-2xl hover:shadow-3xl transition-all"
+              >
+                Start Free Trial
+              </motion.button>
+              
+              <motion.button
+                whileHover={{ scale: 1.05, y: -2 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-8 py-4 rounded-xl bg-transparent border-2 border-white text-white font-semibold hover:bg-white/10 transition-all"
+              >
+                Contact Sales
+              </motion.button>
+            </div>
+          </motion.div>
+        </section>
+
+        {/* Footer */}
+        <footer className="relative bg-gray-900 text-white py-12 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+              <div>
+                <h3 className="text-lg font-bold mb-4">MultiAgent AI</h3>
+                <p className="text-gray-400 text-sm">
+                  Building the future of intelligent automation
+                </p>
+              </div>
+              
+              {['Product', 'Company', 'Resources'].map((section) => (
+                <div key={section}>
+                  <h4 className="font-semibold mb-4">{section}</h4>
+                  <ul className="space-y-2 text-sm text-gray-400">
+                    {['Link 1', 'Link 2', 'Link 3'].map((link) => (
+                      <li key={link}>
+                        <a href="#" className="hover:text-white transition-colors">
+                          {link}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center">
+              <p className="text-sm text-gray-400">
+                © 2025 MultiAgent AI. All rights reserved.
+              </p>
+              <div className="flex gap-4 mt-4 md:mt-0">
+                {['Privacy', 'Terms', 'Contact'].map((link) => (
+                  <a 
+                    key={link}
+                    href="#" 
+                    className="text-sm text-gray-400 hover:text-white transition-colors"
+                  >
+                    {link}
+                  </a>
+                ))}
+              </div>
+            </div>
+          </div>
+        </footer>
+      </div>
+    </ThemeProvider>
+  );
+}
