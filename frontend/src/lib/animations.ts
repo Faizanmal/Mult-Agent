@@ -439,7 +439,7 @@ export const createStagger = (staggerDelay: number = 0.1) => ({
 /**
  * Create custom transition
  */
-export const customTransition = (duration: number = 0.5, ease: any = 'easeInOut') => ({
+export const customTransition = (duration: number = 0.5, ease: string | number[] = 'easeInOut') => ({
   duration,
   ease
 });

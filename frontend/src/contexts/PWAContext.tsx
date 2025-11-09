@@ -7,7 +7,7 @@ interface PWAContextType {
   isInstalled: boolean;
   isOnline: boolean;
   isStandalone: boolean;
-  deferredPrompt: any;
+  deferredPrompt: unknown;
   installApp: () => Promise<void>;
   updateAvailable: boolean;
   updateApp: () => Promise<void>;
@@ -22,7 +22,7 @@ export const PWAProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isInstalled, setIsInstalled] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [isStandalone, setIsStandalone] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<unknown>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'completed' | 'failed'>('idle');
   const [pendingActions, setPendingActions] = useState(0);
@@ -145,7 +145,7 @@ export const PWAProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!deferredPrompt) return;
 
     try {
-      const result = await deferredPrompt.prompt();
+      const result = await (deferredPrompt as any).prompt();
       console.log('PWA: Install prompt result', result);
       
       if (result.outcome === 'accepted') {
@@ -194,7 +194,7 @@ export const PWAProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Public API for caching data offline
-  const cacheWorkflow = (workflow: any) => {
+  const cacheWorkflow = (workflow: unknown) => {
     if (serviceWorker) {
       serviceWorker.postMessage({
         type: 'CACHE_WORKFLOW',
@@ -203,7 +203,7 @@ export const PWAProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const cacheTask = (task: any) => {
+  const cacheTask = (task: unknown) => {
     if (serviceWorker) {
       serviceWorker.postMessage({
         type: 'CACHE_TASK',

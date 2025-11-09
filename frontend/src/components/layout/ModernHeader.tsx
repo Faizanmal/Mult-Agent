@@ -12,7 +12,6 @@ import {
   X, 
   Search, 
   Bell, 
-  Settings, 
   User, 
   Moon, 
   Sun,

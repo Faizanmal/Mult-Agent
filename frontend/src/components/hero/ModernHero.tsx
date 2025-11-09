@@ -8,7 +8,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, Sparkles, Zap, Brain, Globe } from 'lucide-react';
-import { heroAnimation, fadeInUp, staggerContainer, staggerItem } from '@/lib/animations';
+import { staggerContainer, staggerItem } from '@/lib/animations';
 import { GridBackground, FloatingParticles, GlowOrbs } from '@/components/ui/background-effects';
 import { useTypewriter } from '@/hooks/useAnimations';
 

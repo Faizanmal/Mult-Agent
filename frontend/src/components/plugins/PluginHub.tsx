@@ -31,17 +31,11 @@ import {
   Plug,
   Package,
   Download,
-  Upload,
   Star,
-  Eye,
-  EyeOff,
   Settings,
-  Play,
-  Pause,
   Trash2,
   Plus,
   Search,
-  Filter,
   Globe,
   User,
   Lock,
@@ -82,14 +76,6 @@ interface PluginType {
   updated_at: string;
 }
 
-interface PluginInstallation {
-  id: string;
-  plugin: PluginType;
-  configuration: Record<string, unknown>;
-  is_active: boolean;
-  installed_at: string;
-  last_updated: string;
-}
 
 const PluginHub: React.FC = () => {
   const [activeTab, setActiveTab] = useState('installed');

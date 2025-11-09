@@ -1,67 +1,43 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  Database, 
-  Play, 
-  Pause, 
-  Square, 
-  RotateCcw, 
-  Settings, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Eye, 
-  Download, 
-  Upload,
-  Filter,
+import {
+  Plus,
+  Trash2,
+  Edit,
+  Settings,
+  Play,
+  Pause,
+  Square,
+  MoreVertical,
   Search,
   Activity,
   Clock,
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  Info,
-  ArrowRight,
-  ArrowDown,
-  BarChart3,
-  LineChart,
-  PieChart,
-  TrendingUp,
-  TrendingDown,
-  Zap,
   Cloud,
   Server,
   FileText,
-  Code,
-  GitBranch,
-  Calendar,
-  Users,
-  Globe,
   Shield,
   RefreshCw,
   Monitor,
-  Target,
-  Layers,
   Network,
   Cpu,
   HardDrive,
-  MemoryStick
-} from 'lucide-react';
-
-interface DataPipeline {
+  MemoryStick,
+  Globe,
+  Database,
+  Eye
+} from 'lucide-react';interface DataPipeline {
   id: string;
   name: string;
   description: string;
@@ -99,8 +75,8 @@ interface DataPipeline {
   performance: {
     throughput: number;
     latency: number;
-    error_rate: number;
     success_rate: number;
+    error_rate: number;
   };
   resource_usage: {
     cpu_percent: number;
@@ -108,13 +84,10 @@ interface DataPipeline {
     storage_gb: number;
     network_mbps: number;
   };
-  last_run: {
-    started_at?: string;
-    completed_at?: string;
-    status: 'success' | 'error' | 'running';
+  last_run?: {
     records_processed: number;
-    duration_seconds: number;
     error_message?: string;
+    timestamp: string;
   };
   created_at: string;
   updated_at: string;
@@ -195,15 +168,12 @@ interface PipelineTemplate {
   popularity: number;
   tags: string[];
   created_by: string;
-  is_public: boolean;
 }
 
-// Helper functions
 const getStatusIcon = (status: string) => {
   switch (status) {
-    case 'active':
+    case 'success':
     case 'completed':
-    case 'connected':
       return <CheckCircle2 className="w-4 h-4 text-green-500" />;
     case 'error':
     case 'failed':
@@ -617,7 +587,7 @@ export const DataPipelineManager: React.FC = () => {
                     </div>
                     <div className="text-center">
                       <div className="text-2xl font-bold text-purple-600">
-                        {pipeline.last_run.records_processed.toLocaleString()}
+                        {pipeline.last_run?.records_processed.toLocaleString() ?? 'N/A'}
                       </div>
                       <div className="text-sm text-gray-600">Last Run</div>
                     </div>
@@ -643,7 +613,7 @@ export const DataPipelineManager: React.FC = () => {
                     </div>
                   </div>
 
-                  {pipeline.last_run.error_message && (
+                  {pipeline.last_run?.error_message && (
                     <Alert className="mt-4">
                       <AlertTriangle className="h-4 w-4" />
                       <AlertDescription>

@@ -28,7 +28,7 @@ interface FieldSchema {
   type: 'string' | 'number' | 'boolean' | 'array' | 'object';
   title?: string;
   description?: string;
-  default?: any;
+  default?: unknown;
 }
 
 interface ConfigurationSchema {
@@ -40,8 +40,8 @@ interface ConfigurationSchema {
 interface PluginConfigurationProps {
   pluginName: string;
   configurationSchema: ConfigurationSchema;
-  currentConfiguration: Record<string, any>;
-  onSave: (config: Record<string, any>) => void;
+  currentConfiguration: Record<string, unknown>;
+  onSave: (config: Record<string, unknown>) => void;
   onCancel: () => void;
 }
 
@@ -96,7 +96,7 @@ const PluginConfiguration: React.FC<PluginConfigurationProps> = ({
               }
               break;
             case 'number':
-              if (typeof value !== 'number' && !/^-?\d+\.?\d*$/.test(value)) {
+              if (typeof value !== 'number' && !/^-?\d+\.?\d*$/.test(String(value))) {
                 newErrors[field] = 'Must be a number';
               }
               break;
@@ -179,7 +179,7 @@ const PluginConfiguration: React.FC<PluginConfigurationProps> = ({
             <Input
               id={key}
               type="number"
-              value={value}
+              value={String(value) || ''}
               onChange={(e) => handleInputChange(key, parseFloat(e.target.value) || 0)}
               className={error ? 'border-red-500' : ''}
             />
@@ -201,7 +201,7 @@ const PluginConfiguration: React.FC<PluginConfigurationProps> = ({
             <Label htmlFor={key}>{fieldSchema.title || key}</Label>
             <Textarea
               id={key}
-              value={Array.isArray(value) ? value.join('\n') : value}
+              value={Array.isArray(value) ? value.join('\n') : String(value) || ''}
               onChange={(e) => handleInputChange(key, e.target.value.split('\n').filter(Boolean))}
               placeholder="Enter one item per line"
               rows={4}
@@ -225,7 +225,7 @@ const PluginConfiguration: React.FC<PluginConfigurationProps> = ({
             <Label htmlFor={key}>{fieldSchema.title || key}</Label>
             <Textarea
               id={key}
-              value={value}
+              value={String(value) || ''}
               onChange={(e) => handleInputChange(key, e.target.value)}
               placeholder={fieldSchema.description || `Enter ${key}`}
               rows={3}

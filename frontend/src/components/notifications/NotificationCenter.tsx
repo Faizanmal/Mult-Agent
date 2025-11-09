@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,10 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Bell,
   Mail,
@@ -22,39 +19,28 @@ import {
   Trash2,
   Send,
   Eye,
-  EyeOff,
   Check,
   X,
   Clock,
   User,
-  Users,
-  Globe,
   Smartphone,
   Monitor,
-  Volume2,
-  VolumeX,
   AlertTriangle,
   CheckCircle2,
   Info,
   MessageCircle,
   Calendar,
-  Filter,
   Search,
-  MoreVertical,
   Archive,
-  Star,
-  StarOff,
-  Reply,
-  Forward,
   Download,
-  Upload,
   Zap,
   Target,
-  Activity,
-  TrendingUp,
   Database,
-  Workflow
-} from 'lucide-react';interface Notification {
+  Workflow,
+  Volume2
+} from 'lucide-react';
+
+interface Notification {
   id: string;
   title: string;
   message: string;
@@ -88,22 +74,6 @@ interface EmailTemplate {
   subject: string;
   body_html: string;
   body_text: string;
-  category: string;
-  variables: Array<{
-    name: string;
-    description: string;
-    required: boolean;
-    default_value?: string;
-  }>;
-  created_at: string;
-  updated_at: string;
-}
-
-interface EmailCampaign {
-  id: string;
-  name: string;
-  description: string;
-  template_id: string;
   recipients: Array<{
     email: string;
     name?: string;
@@ -112,6 +82,68 @@ interface EmailCampaign {
   status: 'draft' | 'scheduled' | 'sending' | 'sent' | 'cancelled';
   scheduled_at?: string;
   sent_at?: string;
+  updated_at: string;
+  stats: {
+    total: number;
+    sent: number;
+    delivered: number;
+    opened: number;
+    clicked: number;
+    bounced: number;
+    unsubscribed: number;
+  };
+  created_at: string;
+}
+
+interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body_html: string;
+  body_text: string;
+  recipients: Array<{
+    email: string;
+    name?: string;
+    variables?: Record<string, string>;
+  }>;
+  status: 'draft' | 'scheduled' | 'sending' | 'sent' | 'cancelled';
+  scheduled_at?: string;
+  sent_at?: string;
+  updated_at: string;
+  category: string;
+  variables: Array<{
+    name: string;
+    description: string;
+    required: boolean;
+  }>;
+  stats: {
+    total: number;
+    sent: number;
+    delivered: number;
+    opened: number;
+    clicked: number;
+    bounced: number;
+    unsubscribed: number;
+  };
+  created_at: string;
+}
+
+interface EmailCampaign {
+  id: string;
+  name: string;
+  description: string;
+  subject: string;
+  body_html: string;
+  body_text: string;
+  recipients: Array<{
+    email: string;
+    name?: string;
+    variables?: Record<string, string>;
+  }>;
+  status: 'draft' | 'scheduled' | 'sending' | 'sent' | 'cancelled';
+  scheduled_at?: string;
+  sent_at?: string;
+  updated_at: string;
   stats: {
     total: number;
     sent: number;
@@ -148,12 +180,10 @@ interface NotificationRule {
   throttling: {
     enabled: boolean;
     max_per_hour: number;
-    cooldown_minutes: number;
   };
-  created_at: string;
 }
 
-interface NotificationSettings {
+interface NotificationPreferencesType {
   push_notifications: boolean;
   email_notifications: boolean;
   sms_notifications: boolean;
@@ -178,7 +208,7 @@ export const NotificationCenter: React.FC = () => {
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
   const [emailCampaigns, setEmailCampaigns] = useState<EmailCampaign[]>([]);
   const [notificationRules, setNotificationRules] = useState<NotificationRule[]>([]);
-  const [settings, setSettings] = useState<NotificationSettings | null>(null);
+  const [settings, setSettings] = useState<NotificationPreferencesType | null>(null);
   const [activeTab, setActiveTab] = useState('notifications');
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -304,7 +334,7 @@ export const NotificationCenter: React.FC = () => {
     }
   };
 
-  const updateSettings = async (newSettings: Partial<NotificationSettings>) => {
+  const updateSettings = async (newSettings: Partial<NotificationPreferencesType>) => {
     try {
       const response = await fetch('/api/notifications/settings/', {
         method: 'PATCH',
@@ -717,11 +747,8 @@ export const NotificationCenter: React.FC = () => {
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                     <div>
-                      <h4 className="font-medium mb-2">Trigger</h4>
+                      <h4 className="font-medium mb-2">{rule.name}</h4>
                       <p className="text-gray-600 dark:text-gray-400">
                         {rule.trigger.event_type}
                       </p>
@@ -761,8 +788,7 @@ export const NotificationCenter: React.FC = () => {
                     <Alert className="mt-4">
                       <AlertTriangle className="h-4 w-4" />
                       <AlertDescription>
-                        Throttling enabled: Max {rule.throttling.max_per_hour} notifications per hour 
-                        with {rule.throttling.cooldown_minutes} minute cooldown
+                        Throttling enabled: Max {rule.throttling.max_per_hour} notifications per hour
                       </AlertDescription>
                     </Alert>
                   )}
@@ -781,8 +807,8 @@ export const NotificationCenter: React.FC = () => {
 };
 
 const NotificationSettings: React.FC<{
-  settings: NotificationSettings;
-  onUpdate: (settings: Partial<NotificationSettings>) => void;
+  settings: NotificationPreferencesType;
+  onUpdate: (settings: Partial<NotificationPreferencesType>) => void;
 }> = ({ settings, onUpdate }) => {
   return (
     <div className="space-y-6">

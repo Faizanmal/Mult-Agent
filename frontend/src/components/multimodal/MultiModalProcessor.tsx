@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   Card,
   CardContent,
@@ -29,19 +29,13 @@ import {
   File,
   X,
   Download,
-  Eye,
-  Play,
-  Pause,
   Volume2,
-  VolumeX,
   Loader2,
   CheckCircle,
-  AlertCircle,
   Brain,
   Zap,
   Search,
   Copy,
-  Share,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { useDropzone } from 'react-dropzone'
@@ -149,7 +143,6 @@ const MultiModalProcessor: React.FC = () => {
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
 
   const { toast } = useToast()
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const getFileType = (file: File): 'text' | 'image' | 'audio' | 'video' | 'document' => {
     const type = file.type
@@ -239,7 +232,7 @@ const MultiModalProcessor: React.FC = () => {
       recorder.start()
       setMediaRecorder(recorder)
       setAudioRecording(true)
-    } catch (error) {
+    } catch {
       toast({
         title: 'Recording Failed',
         description: 'Could not access microphone',
@@ -306,7 +299,7 @@ const MultiModalProcessor: React.FC = () => {
           variant: 'destructive',
         })
       }
-    } catch (error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to process multimodal input',
@@ -341,12 +334,12 @@ const MultiModalProcessor: React.FC = () => {
 
   const getFileIcon = (type: string) => {
     switch (type) {
-      case 'text': return <FileText className="w-4 h-4" />
-      case 'image': return <Image className="w-4 h-4" />
-      case 'audio': return <Volume2 className="w-4 h-4" />
-      case 'video': return <Video className="w-4 h-4" />
-      case 'document': return <File className="w-4 h-4" />
-      default: return <File className="w-4 h-4" />
+      case 'text': return <FileText className="w-4 h-4" aria-hidden="true" />
+      case 'image': return <Image className="w-4 h-4" aria-hidden="true" />
+      case 'audio': return <Volume2 className="w-4 h-4" aria-hidden="true" />
+      case 'video': return <Video className="w-4 h-4" aria-hidden="true" />
+      case 'document': return <File className="w-4 h-4" aria-hidden="true" />
+      default: return <File className="w-4 h-4" aria-hidden="true" />
     }
   }
 
@@ -466,6 +459,7 @@ const MultiModalProcessor: React.FC = () => {
                       </div>
                       
                       {fileInfo.preview && (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={fileInfo.preview}
                           alt={fileInfo.file.name}
@@ -783,7 +777,7 @@ const MultiModalProcessor: React.FC = () => {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Image className="w-5 h-5" />
+                      <Image className="w-5 h-5" aria-hidden="true" />
                       Image Analysis
                     </CardTitle>
                   </CardHeader>

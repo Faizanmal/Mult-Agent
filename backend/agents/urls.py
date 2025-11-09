@@ -2,6 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
 from . import collaboration_views
+from . import workflow_views
 
 router = DefaultRouter()
 # Existing endpoints
@@ -15,7 +16,7 @@ router.register(r'groq', views.GroqIntegrationView, basename='groq')
 
 # Enhanced feature endpoints
 router.register(r'smart-agents', views.SmartAgentViewSet, basename='smart-agents')
-router.register(r'workflows', views.WorkflowViewSet, basename='workflows')
+router.register(r'workflows', workflow_views.WorkflowViewSet, basename='workflows')
 router.register(r'multimodal', views.MultiModalProcessorViewSet, basename='multimodal')
 router.register(r'analytics', views.AnalyticsDashboardViewSet, basename='analytics')
 router.register(r'automation', views.AutomationViewSet, basename='automation')

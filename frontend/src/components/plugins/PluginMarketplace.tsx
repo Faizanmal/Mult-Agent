@@ -21,7 +21,6 @@ import {
 } from '@/components/ui/select';
 import {
   Search,
-  Filter,
   Download,
   Star,
   Globe,
@@ -71,14 +70,6 @@ const PluginMarketplace: React.FC = () => {
 
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadPlugins();
-  }, []);
-
-  useEffect(() => {
-    filterAndSortPlugins();
-  }, [plugins, searchTerm, typeFilter, sortOption]);
-
   const loadPlugins = async () => {
     try {
       setIsLoading(true);
@@ -96,6 +87,10 @@ const PluginMarketplace: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadPlugins();
+  }, []);
 
   const filterAndSortPlugins = () => {
     let result = [...plugins];
@@ -139,6 +134,10 @@ const PluginMarketplace: React.FC = () => {
     
     setFilteredPlugins(result);
   };
+
+  useEffect(() => {
+    filterAndSortPlugins();
+  }, [plugins, searchTerm, typeFilter, sortOption]);
 
   const installPlugin = async (plugin: PluginType) => {
     try {

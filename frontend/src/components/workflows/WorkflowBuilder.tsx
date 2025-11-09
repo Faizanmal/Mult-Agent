@@ -57,22 +57,12 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  Copy,
-  Download,
-  Upload,
-  Clock,
   Settings2,
   GitBranch,
   Zap,
-  Database,
   Globe,
-  Bell,
   Timer,
-  MoreHorizontal,
-  Eye,
-  EyeOff,
   Bot,
-  Sparkles,
   Monitor,
   Library,
   Users,
@@ -196,11 +186,11 @@ const WorkflowBuilder: React.FC = () => {
   const [showVersionControl, setShowVersionControl] = useState(false)
   const [showAIAssistant, setShowAIAssistant] = useState(false)
   const [activeTab, setActiveTab] = useState('builder')
-  const [workflowTemplates, setWorkflowTemplates] = useState<any[]>([])
+  const [workflowTemplates, setWorkflowTemplates] = useState<unknown[]>([])
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false)
   const [showScheduler, setShowScheduler] = useState(false)
   const [isScheduled, setIsScheduled] = useState(false)
-  const [scheduleConfig, setScheduleConfig] = useState<any>({})
+  const [scheduleConfig, setScheduleConfig] = useState<unknown>({})
 
   const { toast } = useToast()
 
@@ -1244,7 +1234,7 @@ const WorkflowBuilder: React.FC = () => {
                 </div>
               ) : (
                 <div className="grid gap-3">
-                  {workflowTemplates.map((template) => (
+                  {workflowTemplates.map((template: any) => (
                     <Card key={template.id} className="p-3 hover:shadow-sm cursor-pointer">
                       <div className="flex justify-between items-start">
                         <div>
@@ -1584,13 +1574,13 @@ const WorkflowBuilder: React.FC = () => {
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Next Run:</span>
                       <span className="text-sm text-muted-foreground">
-                        {scheduleConfig.next_run || 'Not set'}
+                        {(scheduleConfig as any)?.next_run || 'Not set'}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Frequency:</span>
                       <span className="text-sm text-muted-foreground">
-                        {scheduleConfig.frequency || 'One-time'}
+                        {(scheduleConfig as any)?.frequency || 'One-time'}
                       </span>
                     </div>
                   </div>

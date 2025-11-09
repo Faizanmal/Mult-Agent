@@ -440,7 +440,7 @@ export default function AgentChatInterface() {
             <div className="flex justify-between items-center mt-2">
               <div className="flex gap-2">
                 <Button variant="ghost" size="sm" aria-label="Upload image">
-                  <Image className="h-4 w-4" alt="Upload Image" />
+                  <Image className="h-4 w-4" aria-label="Upload Image" role="img" />
                 </Button>
                 <Button variant="ghost" size="sm">
                   <FileText className="h-4 w-4" />

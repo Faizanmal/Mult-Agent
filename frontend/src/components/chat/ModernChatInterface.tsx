@@ -7,9 +7,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Paperclip, Mic, Bot, User, Sparkles, Loader2 } from 'lucide-react';
+import { Send, Paperclip, Mic, Bot, User, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { fadeInUp, staggerContainer, staggerItem } from '@/lib/animations';
 import { BouncingDots } from '@/components/ui/loading';
 
 interface Message {

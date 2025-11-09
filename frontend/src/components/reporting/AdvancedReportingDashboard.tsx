@@ -32,34 +32,19 @@ import {
   Download, 
   Share2, 
   Filter, 
-  Calendar,
   TrendingUp,
-  TrendingDown,
-  Activity,
-  Users,
-  DollarSign,
   Clock,
-  Target,
-  Zap,
-  Brain,
-  Database,
-  Globe,
   Settings,
   Eye,
   BarChart3,
   PieChart as PieChartIcon,
   LineChart as LineChartIcon,
-  Table,
   Grid3X3,
-  AlertTriangle,
-  CheckCircle2,
   ArrowUp,
   ArrowDown,
   Minus,
   Plus,
   RefreshCw,
-  Mail,
-  Printer,
   FileSpreadsheet,
   Upload
 } from 'lucide-react';
@@ -118,7 +103,7 @@ interface CustomReport {
   };
   sections: Array<{
     type: 'metric' | 'chart' | 'table' | 'text';
-    config: any;
+    config: unknown;
     position: { row: number; col: number; width: number; height: number };
   }>;
   export_formats: string[];

@@ -17,7 +17,7 @@ import {
   ArrowDownRight
 } from 'lucide-react';
 import { AnimatedStatCard, FeatureCard, GlassCard } from '@/components/ui/animated-card';
-import { staggerContainer, staggerItem, fadeInUp } from '@/lib/animations';
+import { staggerContainer, staggerItem } from '@/lib/animations';
 import { useCountUp } from '@/hooks/useAnimations';
 
 export function ModernDashboard() {

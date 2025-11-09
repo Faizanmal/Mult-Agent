@@ -71,8 +71,8 @@ interface TiltCardProps {
 }
 
 export function TiltCard({ children, className, maxTilt = 15 }: TiltCardProps) {
-  const ref = useRef<HTMLDivElement>(null);
-  const tilt = useTiltEffect(ref, maxTilt);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const tilt = useTiltEffect(ref as React.RefObject<HTMLElement>, maxTilt);
 
   return (
     <motion.div

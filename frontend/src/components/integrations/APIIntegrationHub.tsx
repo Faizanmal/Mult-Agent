@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,38 +9,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { 
   Globe, 
   Plus, 
   Settings, 
   Play, 
-  Pause, 
-  Edit, 
   Trash2, 
-  Eye, 
-  EyeOff, 
-  Copy, 
   CheckCircle, 
   XCircle, 
   AlertCircle,
   Zap,
   Database,
   Cloud,
-  Webhook,
-  Key,
   Monitor,
   BarChart3,
   Clock,
   Activity,
   Shield,
   Link,
-  Filter,
   Search,
-  Download,
-  Upload,
   RefreshCw
 } from 'lucide-react';
 
@@ -88,7 +76,7 @@ interface APICallResult {
   id: string;
   integration_id: string;
   status: 'success' | 'error' | 'timeout';
-  response_data: any;
+  response_data: unknown;
   response_time: number;
   error_message?: string;
   timestamp: string;
@@ -100,10 +88,9 @@ interface APITemplate {
   description: string;
   category: string;
   provider: string;
-  logo: string;
-  config_template: Partial<APIIntegration>;
-  popularity: number;
   tags: string[];
+  popularity: number;
+  config_template: Partial<APIIntegration>;
 }
 
 export const APIIntegrationHub: React.FC = () => {
@@ -117,7 +104,6 @@ export const APIIntegrationHub: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [showCredentials, setShowCredentials] = useState(false);
 
   useEffect(() => {
     loadIntegrations();
@@ -133,8 +119,8 @@ export const APIIntegrationHub: React.FC = () => {
         const data = await response.json();
         setIntegrations(data);
       }
-    } catch (error) {
-      console.error('Failed to load integrations:', error);
+    } catch (err) {
+      console.error('Failed to load integrations:', err);
       setError('Failed to load API integrations');
     } finally {
       setIsLoading(false);
@@ -183,8 +169,8 @@ export const APIIntegrationHub: React.FC = () => {
           )
         );
       }
-    } catch (error) {
-      console.error('Test failed:', error);
+    } catch (err) {
+      console.error('Test failed:', err);
     } finally {
       setIsLoading(false);
     }
@@ -530,7 +516,7 @@ export const APIIntegrationHub: React.FC = () => {
                   </div>
                   <p className="text-gray-600 dark:text-gray-400 mb-4">{template.description}</p>
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {template.tags.map((tag) => (
+                    {template.tags.map((tag: string) => (
                       <Badge key={tag} variant="secondary" className="text-xs">
                         {tag}
                       </Badge>

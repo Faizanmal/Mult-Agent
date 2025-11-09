@@ -16,12 +16,7 @@ import {
   Users,
   MessageSquare,
   Share2,
-  GitBranch,
-  Clock,
-  Eye,
-  Edit,
   UserPlus,
-  Bell,
   Video,
   Phone,
   Send,
@@ -29,7 +24,6 @@ import {
   MoreHorizontal,
   CheckCircle2,
   AlertCircle,
-  Star,
   History,
   Lock,
   Unlock,
@@ -72,7 +66,7 @@ interface WorkflowActivity {
 interface CollaborativeWorkflowSystemProps {
   workflowId: string
   currentUserId: string
-  onCollaborationUpdate?: (data: any) => void
+  onCollaborationUpdate?: (data: unknown) => void
 }
 
 const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = ({

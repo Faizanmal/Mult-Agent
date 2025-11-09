@@ -21,8 +21,6 @@ import {
   CheckCircle,
   Settings,
   PlayCircle,
-  PauseCircle,
-  RotateCcw,
   Activity,
   BarChart3,
   GitBranch,

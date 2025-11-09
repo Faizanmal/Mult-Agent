@@ -13,7 +13,7 @@ import apiClient from '@/lib/api';
 
 export function ApiTestComponent() {
   const [isLoading, setIsLoading] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<Array<{ name: string; status: 'success' | 'error'; data?: unknown; error?: string }>>([]);
 
   const testApiEndpoints = async () => {
     setIsLoading(true);
@@ -80,11 +80,11 @@ export function ApiTestComponent() {
               }`}>
                 <strong>{result.name}:</strong> {result.status}
                 {result.error && <div>Error: {result.error}</div>}
-                {result.data && (
+                {result.data ? (
                   <div>
-                    Data: {typeof result.data === 'object' ? JSON.stringify(result.data, null, 2).substring(0, 200) + '...' : result.data}
+                    Data: {String(typeof result.data === 'object' ? JSON.stringify(result.data, null, 2).substring(0, 200) + '...' : result.data)}
                   </div>
-                )}
+                ) : null}
               </div>
             ))}
           </div>

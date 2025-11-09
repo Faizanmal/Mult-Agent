@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { 
@@ -21,7 +20,6 @@ import {
   Mail,
   Lock,
   User,
-  Smartphone,
   Key
 } from 'lucide-react';
 
@@ -74,7 +72,7 @@ export const LoginForm: React.FC = () => {
       if (!success) {
         setError('Invalid email or password. Please try again.');
       }
-    } catch (error) {
+    } catch {
       setError('Login failed. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -114,7 +112,7 @@ export const LoginForm: React.FC = () => {
       } else {
         setError('Registration failed. Please try again.');
       }
-    } catch (error) {
+    } catch {
       setError('Registration failed. Please try again.');
     } finally {
       setIsSubmitting(false);
