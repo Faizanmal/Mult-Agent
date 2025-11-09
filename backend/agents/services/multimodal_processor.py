@@ -13,8 +13,6 @@ from PIL import Image, ImageDraw, ImageFont
 import speech_recognition as sr
 from gtts import gTTS
 import pytesseract
-from transformers import pipeline
-import torch
 from django.core.files.uploadedfile import UploadedFile
 from django.conf import settings
 
@@ -27,10 +25,11 @@ class MultiModalProcessor:
     """
     
     def __init__(self):
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        logger.info(f"MultiModalProcessor initialized on device: {self.device}")
-        
-        # Initialize AI models
+        # Default device until torch is imported in _initialize_models
+        self.device = 'cpu'
+        logger.info(f"MultiModalProcessor initialized (device unknown until models are loaded)")
+
+        # Initialize AI models lazily (imports heavy libs inside this method)
         self._initialize_models()
         
         # Initialize speech recognition
@@ -46,38 +45,67 @@ class MultiModalProcessor:
     
     def _initialize_models(self):
         """Initialize AI models for various processing tasks."""
-        
         try:
+            # Import heavy ML libraries lazily to avoid blocking module import time
+            import importlib
+
+            _torch = None
+            try:
+                _torch = importlib.import_module('torch')
+            except Exception:
+                _torch = None
+
+            if _torch is not None:
+                self.device = 'cuda' if getattr(_torch, 'cuda', None) and _torch.cuda.is_available() else 'cpu'
+            else:
+                self.device = 'cpu'
+
+            transformers = None
+            try:
+                transformers = importlib.import_module('transformers')
+            except Exception:
+                transformers = None
+
+            if transformers is None:
+                logger.warning('transformers not available; model pipelines will be disabled')
+                self.image_caption_model = None
+                self.object_detection_model = None
+                self.sentiment_model = None
+                self.summarization_model = None
+                return
+
+            pipeline = transformers.pipeline
+
             # Image captioning model
             self.image_caption_model = pipeline(
                 "image-to-text",
                 model="Salesforce/blip-image-captioning-base",
                 device=0 if self.device == 'cuda' else -1
             )
-            
+
             # Object detection model (YOLO alternative using transformers)
             self.object_detection_model = pipeline(
                 "object-detection",
                 model="facebook/detr-resnet-50",
                 device=0 if self.device == 'cuda' else -1
             )
-            
+
             # Sentiment analysis model
             self.sentiment_model = pipeline(
                 "sentiment-analysis",
                 model="cardiffnlp/twitter-roberta-base-sentiment-latest",
                 device=0 if self.device == 'cuda' else -1
             )
-            
+
             # Text summarization model
             self.summarization_model = pipeline(
                 "summarization",
                 model="facebook/bart-large-cnn",
                 device=0 if self.device == 'cuda' else -1
             )
-            
+
             logger.info("AI models initialized successfully")
-            
+
         except Exception as e:
             logger.error(f"Error initializing AI models: {e}")
             # Initialize placeholder models

@@ -1,8 +1,11 @@
 from django.db import models
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.conf import settings as django_settings
 import uuid
 from datetime import datetime
+
+# Get the custom user model
+User = get_user_model()
 
 class AgentType(models.TextChoices):
     ORCHESTRATOR = 'orchestrator', 'Orchestrator'

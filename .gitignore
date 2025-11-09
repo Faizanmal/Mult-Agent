@@ -1,3 +1,5 @@
+.github/
+
 # Environment Variables
 *.env
 .env

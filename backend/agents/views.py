@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.exceptions import ValidationError, NotFound
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.conf import settings
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -16,6 +16,9 @@ from asgiref.sync import async_to_sync
 import json
 import asyncio
 from datetime import datetime, timedelta
+
+# Get the custom user model
+User = get_user_model()
 
 from .models import (
     Agent, Session, Task, Message, AgentMemory, 
@@ -153,9 +156,14 @@ class AgentViewSet(viewsets.ModelViewSet):
             serializer.save(owner=self.request.user)
         else:
             # For development without auth, use first user or create default user
+            # Note: CustomUser uses email as USERNAME_FIELD
             default_user, _ = User.objects.get_or_create(
-                username='default_user',
-                defaults={'email': 'default@example.com'}
+                email='default@example.com',
+                defaults={
+                    'username': 'default_user',
+                    'first_name': 'Default',
+                    'last_name': 'User'
+                }
             )
             serializer.save(owner=default_user)
     
@@ -221,15 +229,37 @@ class SessionViewSet(viewsets.ModelViewSet):
         return Session.objects.filter(user=self.request.user)
     
     def perform_create(self, serializer):
-        if not settings.DEBUG and self.request.user.is_authenticated:
-            serializer.save(user=self.request.user)
+        # Always ensure we have a valid user
+        if self.request.user.is_authenticated:
+            user = self.request.user
+            print(f"DEBUG: Using authenticated user: {user.email} (ID: {user.pk})")
         else:
             # For development without auth, use first user or create default user
-            default_user, _ = User.objects.get_or_create(
-                username='default_user',
-                defaults={'email': 'default@example.com'}
+            # Note: CustomUser uses email as USERNAME_FIELD
+            user, created = User.objects.get_or_create(
+                email='default@example.com',
+                defaults={
+                    'username': 'default_user',
+                    'first_name': 'Default',
+                    'last_name': 'User'
+                }
             )
-            serializer.save(user=default_user)
+            print(f"DEBUG: Using default user: {user.email} (ID: {user.pk}, Created: {created})")
+        
+        # Verify user exists and has valid ID
+        if not user or not user.pk:
+            print(f"ERROR: Invalid user - user={user}, pk={user.pk if user else None}")
+            raise ValidationError({'user': 'Valid user is required to create a session'})
+        
+        print(f"DEBUG: About to save session with user_id={user.pk}")
+        try:
+            session = serializer.save(user=user)
+            print(f"DEBUG: Session created successfully: {session.id}")
+        except Exception as e:
+            print(f"ERROR: Failed to save session: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     @action(detail=True, methods=['post'])
     def add_agent(self, request, pk=None):
@@ -269,9 +299,14 @@ class SessionViewSet(viewsets.ModelViewSet):
         # Get user for message
         user = request.user if request.user.is_authenticated else None
         if not user and settings.DEBUG:
+            # Note: CustomUser uses email as USERNAME_FIELD
             user, _ = User.objects.get_or_create(
-                username='default_user',
-                defaults={'email': 'default@example.com'}
+                email='default@example.com',
+                defaults={
+                    'username': 'default_user',
+                    'first_name': 'Default',
+                    'last_name': 'User'
+                }
             )
         
         # Create message
@@ -357,9 +392,14 @@ class MessageViewSet(viewsets.ModelViewSet):
             if settings.DEBUG:
                 session = Session.objects.get(id=session_id)
                 # Use default user in debug mode
+                # Note: CustomUser uses email as USERNAME_FIELD
                 default_user, _ = User.objects.get_or_create(
-                    username='default_user',
-                    defaults={'email': 'default@example.com'}
+                    email='default@example.com',
+                    defaults={
+                        'username': 'default_user',
+                        'first_name': 'Default',
+                        'last_name': 'User'
+                    }
                 )
                 message = serializer.save(session=session, sender=default_user)
                 

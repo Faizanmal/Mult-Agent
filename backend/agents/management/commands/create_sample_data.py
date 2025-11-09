@@ -3,18 +3,22 @@ Django management command to create sample agents and sessions
 """
 
 from django.core.management.base import BaseCommand
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from agents.models import Agent, Session, AgentStatus
+
+# Get the custom user model
+User = get_user_model()
 
 class Command(BaseCommand):
     help = 'Create sample agents and sessions for development'
 
     def handle(self, *args, **options):
         # Create or get default user
+        # Note: CustomUser uses email as USERNAME_FIELD
         default_user, created = User.objects.get_or_create(
-            username='default_user',
+            email='default@example.com',
             defaults={
-                'email': 'default@example.com',
+                'username': 'default_user',
                 'first_name': 'Default',
                 'last_name': 'User'
             }

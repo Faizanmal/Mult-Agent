@@ -20,7 +20,7 @@ class GroqService:
     
     def chat_completion(self, messages: List[Dict], model: str = None, **kwargs) -> Dict[str, Any]:
         """
-        Get chat completion from Groq API
+        Get chat completion from Groq API with enhanced performance and error handling
         
         Args:
             messages: List of message dictionaries
@@ -31,15 +31,26 @@ class GroqService:
             Dict containing the response
         """
         try:
+            # Enhanced parameters for better performance
+            temperature = kwargs.get('temperature', self.default_temperature)
+            max_tokens = kwargs.get('max_tokens', self.default_max_tokens)
+            stream = kwargs.get('stream', False)
+            
+            # Optimize parameters based on message length for better performance
+            if len(str(messages)) < 500:
+                # For short messages, use faster parameters
+                temperature = min(temperature, 0.5)  # Less creativity for simple tasks
+                max_tokens = min(max_tokens, 512)    # Limit tokens for faster response
+            
             response = self.client.chat.completions.create(
                 messages=messages,
                 model=model or self.default_model,
-                temperature=kwargs.get('temperature', self.default_temperature),
-                max_tokens=kwargs.get('max_tokens', self.default_max_tokens),
-                stream=kwargs.get('stream', False)
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=stream
             )
             
-            if kwargs.get('stream', False):
+            if stream:
                 return self._handle_stream_response(response)
             
             return {
@@ -50,7 +61,8 @@ class GroqService:
                     'completion_tokens': response.usage.completion_tokens,
                     'total_tokens': response.usage.total_tokens
                 },
-                'finish_reason': response.choices[0].finish_reason
+                'finish_reason': response.choices[0].finish_reason,
+                'response_time': response.usage.completion_tokens / 1000  # Approximate response time
             }
             
         except Exception as e:

@@ -6,12 +6,15 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from django.utils import timezone
 from django.db.models import Count, Avg, Sum, Q, F
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from ..models import (
     Agent, Task, TaskExecution, Session, Message, 
     AgentStatus, TaskStatus, PerformanceMetric
 )
 from .performance_tracker import PerformanceTracker
+
+# Get the custom user model
+User = get_user_model()
 
 logger = logging.getLogger(__name__)
 

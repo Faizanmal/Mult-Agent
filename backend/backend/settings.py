@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'data_pipelines',
 ]
 
+# Add performance tracking middleware
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -69,6 +70,15 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Performance tracking middleware
+    'agents.middleware.PerformanceTrackingMiddleware',
+    # Enterprise security middleware
+    'authentication.security_middleware.RateLimitMiddleware',
+    'authentication.security_middleware.SecurityHeadersMiddleware',
+    'authentication.security_middleware.AuditLoggingMiddleware',
+    'authentication.security_middleware.RequestIDMiddleware',
+    # API versioning middleware
+    'backend.api_versioning.APIVersionMiddleware',
 ]
 
 ROOT_URLCONF = 'backend.urls'
@@ -176,11 +186,12 @@ CORS_ALLOW_HEADERS = [
 # Django REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'authentication.jwt_auth.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.TokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny' if DEBUG else 'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny' if DEBUG else 'authentication.rbac.RBACPermission',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
@@ -192,6 +203,17 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.MultiPartParser',
         'rest_framework.parsers.FileUploadParser',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/hour',
+        'user': '1000/hour',
+    },
+    'DEFAULT_VERSIONING_CLASS': 'backend.api_versioning.EnterpriseAPIVersioning',
+    'DEFAULT_VERSION': 'v1',
+    'ALLOWED_VERSIONS': ['v1', 'v2'],
 }
 
 # Channels Configuration
@@ -224,12 +246,6 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
-
-# Environment Variables
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # API Keys
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
@@ -315,29 +331,36 @@ else:
         }
     }
 
-# Multi-Agent System Configuration
+# Performance Monitoring Configuration
+PERFORMANCE_MONITORING = {
+    'ENABLED': True,
+    'TRACK_AGENT_PERFORMANCE': True,
+    'TRACK_TASK_EXECUTION': True,
+    'TRACK_API_RESPONSE_TIMES': True,
+    'LOG_LEVEL': 'INFO',
+    'METRICS_RETENTION_DAYS': 30,
+}
+
+# Enhanced Agent Configuration
 AGENT_CONFIG = {
     'MAX_AGENTS': 10,
     'DEFAULT_TIMEOUT': 30,
     'REASONING_DEPTH': 5,
     'MEMORY_BUFFER_SIZE': 1000,
+    'PERFORMANCE_TRACKING': True,
+    'AUTO_SCALING': True,
+    'LOAD_BALANCING': True,
 }
 
-# Multi-Modal Processing Configuration
-MULTIMODAL_CONFIG = {
-    'SUPPORTED_IMAGE_FORMATS': ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'],
-    'SUPPORTED_AUDIO_FORMATS': ['mp3', 'wav', 'ogg', 'm4a', 'flac'],
-    'SUPPORTED_VIDEO_FORMATS': ['mp4', 'avi', 'mov', 'wmv', 'flv'],
-    'MAX_FILE_SIZE': 50 * 1024 * 1024,  # 50MB
-    'PROCESSING_TIMEOUT': 300,  # 5 minutes
-}
-
-# Groq Configuration
+# Groq Configuration with performance optimization
 GROQ_CONFIG = {
     'MODEL': 'mixtral-8x7b-32768',
     'TEMPERATURE': 0.7,
     'MAX_TOKENS': 2048,
     'STREAM': True,
+    'OPTIMIZE_FOR_PERFORMANCE': True,
+    'CACHE_RESPONSES': True,
+    'CACHE_TTL': 300,  # 5 minutes
 }
 
 # MCP Configuration

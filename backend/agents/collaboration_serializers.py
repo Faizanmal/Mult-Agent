@@ -2,7 +2,10 @@
 
 from rest_framework import serializers
 from .collaboration_models import CollaborationSession, TeamMember, Comment, ActivityLog, Notification, WorkflowLock, ChangeLog
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+
+# Get the custom user model
+User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):

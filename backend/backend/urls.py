@@ -36,7 +36,7 @@ urlpatterns = [
     path('data-pipelines/api/', include('data_pipelines.urls')),
     
     # Direct API routes for frontend
-    path('', include('api_integrations.urls')),
+    path('', include('api_integrations.urls', namespace='api_integrations_root')),
 ]
 
 # Serve media files during development

@@ -20,10 +20,10 @@ class SessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Session
         fields = [
-            'id', 'name', 'agents', 'context', 'created_at', 
+            'id', 'name', 'user', 'agents', 'context', 'created_at', 
             'updated_at', 'is_active', 'agent_count', 'message_count'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
     
     def get_agent_count(self, obj):
         return obj.agents.count()
