@@ -335,7 +335,7 @@ const MultiModalProcessor: React.FC = () => {
   const getFileIcon = (type: string) => {
     switch (type) {
       case 'text': return <FileText className="w-4 h-4" aria-hidden="true" />
-      case 'image': return <Image className="w-4 h-4" aria-hidden="true" />
+      case 'image': return <Image className="w-4 h-4" aria-hidden="true" />; // eslint-disable-line jsx-a11y/alt-text
       case 'audio': return <Volume2 className="w-4 h-4" aria-hidden="true" />
       case 'video': return <Video className="w-4 h-4" aria-hidden="true" />
       case 'document': return <File className="w-4 h-4" aria-hidden="true" />
@@ -777,7 +777,7 @@ const MultiModalProcessor: React.FC = () => {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Image className="w-5 h-5" aria-hidden="true" />
+                      <Image className="w-5 h-5" aria-hidden="true" /> {/* eslint-disable-line jsx-a11y/alt-text */}
                       Image Analysis
                     </CardTitle>
                   </CardHeader>

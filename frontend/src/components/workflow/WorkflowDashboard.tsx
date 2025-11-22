@@ -9,11 +9,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { 
   Play, 
-  Pause, 
   CheckCircle, 
   XCircle, 
   Clock, 
@@ -426,7 +424,7 @@ export default function WorkflowDashboard() {
                   <p className="text-sm text-gray-600">{selectedTemplate.description}</p>
                   
                   <div className="space-y-3">
-                    {Object.entries(selectedTemplate.input_schema || {}).map(([key, type]) => (
+                    {Object.entries(selectedTemplate.input_schema || {}).map(([key]) => (
                       <div key={key}>
                         <Label>{key.replace('_', ' ').toUpperCase()}</Label>
                         <Input

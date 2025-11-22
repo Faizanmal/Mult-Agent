@@ -40,30 +40,30 @@ interface PluginInstallation {
 const pluginApi = {
   // Get all plugins
   getAllPlugins: async (): Promise<Plugin[]> => {
-    const response = await apiClient.getPlugins();
-    return response.results;
+    const response = await apiClient.getAgentPlugins();
+    return response.results || [];
   },
 
   // Get installed plugins
   getInstalledPlugins: async (): Promise<PluginInstallation[]> => {
     const response = await apiClient.getInstalledPlugins();
-    return response.results;
+    return response.results || [];
   },
 
   // Get public plugins
   getPublicPlugins: async (): Promise<Plugin[]> => {
-    const response = await apiClient.getPublicPlugins();
-    return response.results;
+    const response = await apiClient.getPublicAgentPlugins();
+    return response.results || [];
   },
 
   // Install a plugin
   installPlugin: async (pluginId: string): Promise<PluginInstallation> => {
-    return await apiClient.installPlugin(pluginId);
+    return await apiClient.installAgentPlugin(pluginId);
   },
 
   // Uninstall a plugin
-  uninstallPlugin: async (installationId: string): Promise<void> => {
-    await apiClient.uninstallPlugin(installationId);
+  uninstallPlugin: async (installationId: string): Promise<{ status: string }> => {
+    return await apiClient.uninstallAgentPlugin(installationId);
   },
 
   // Toggle plugin status
@@ -82,22 +82,22 @@ const pluginApi = {
 
   // Create a new plugin
   createPlugin: async (pluginData: Omit<Plugin, 'id' | 'author' | 'download_count' | 'rating' | 'rating_count' | 'created_at' | 'updated_at'>): Promise<Plugin> => {
-    return await apiClient.createPlugin(pluginData);
+    return await apiClient.createAgentPlugin(pluginData);
   },
 
   // Publish a plugin
   publishPlugin: async (pluginId: string): Promise<{ status: string }> => {
-    return await apiClient.publishPlugin(pluginId);
+    return await apiClient.publishAgentPlugin(pluginId);
   },
 
   // Unpublish a plugin
   unpublishPlugin: async (pluginId: string): Promise<{ status: string }> => {
-    return await apiClient.unpublishPlugin(pluginId);
+    return await apiClient.unpublishAgentPlugin(pluginId);
   },
 
   // Rate a plugin
   ratePlugin: async (pluginId: string, ratingData: { rating: number; review?: string }): Promise<{ status: string }> => {
-    return await apiClient.ratePlugin(pluginId, ratingData);
+    return await apiClient.rateAgentPlugin(pluginId, ratingData);
   },
 };
 
@@ -139,7 +139,7 @@ export const useInstallPlugin = () => {
 export const useUninstallPlugin = () => {
   const queryClient = useQueryClient();
   
-  return useMutation<void, Error, string>({
+  return useMutation<{ status: string }, Error, string>({
     mutationFn: pluginApi.uninstallPlugin,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['plugins'] });

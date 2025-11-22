@@ -58,6 +58,12 @@ INSTALLED_APPS = [
     'reporting',
     'notifications',
     'data_pipelines',
+    # New feature modules
+    'agent_learning',
+    'plugin_system',
+    'webhooks',
+    'analytics',
+    'workflow_builder',
 ]
 
 # Add performance tracking middleware
@@ -354,7 +360,7 @@ AGENT_CONFIG = {
 
 # Groq Configuration with performance optimization
 GROQ_CONFIG = {
-    'MODEL': 'mixtral-8x7b-32768',
+    'MODEL': 'llama-3.3-70b-versatile',
     'TEMPERATURE': 0.7,
     'MAX_TOKENS': 2048,
     'STREAM': True,

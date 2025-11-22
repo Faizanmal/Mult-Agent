@@ -175,7 +175,7 @@ class LangchainAgentCoordinator:
         api_key = settings.GROQ_API_KEY or None
         self.llm = ChatGroq(
             temperature=0.7,
-            model=settings.GROQ_CONFIG.get('MODEL', 'mixtral-8x7b-32768'),
+            model=settings.GROQ_CONFIG.get('MODEL', 'llama-3.3-70b-versatile'),
             api_key=api_key
         ) if api_key else None
         self.tools = [

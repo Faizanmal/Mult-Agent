@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 // Removed unused Tabs, Input, and Textarea imports
@@ -11,7 +10,6 @@ import {
   CheckCircle2, 
   Clock, 
   AlertCircle, 
-  Plus, 
   Target,
   TrendingUp,
   Users,
@@ -204,7 +202,6 @@ const TaskManager: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterCategory, setFilterCategory] = useState<string>('all')
   const [filterPriority, setFilterPriority] = useState<string>('all')
-  const [showAddTask, setShowAddTask] = useState(false)
   
   const filteredTasks = tasks.filter(task => {
     if (filterStatus !== 'all' && task.status !== filterStatus) return false
@@ -251,8 +248,6 @@ const TaskManager: React.FC = () => {
 
   const calculateOverallProgress = () => {
     const totalTasks = tasks.length
-    const completedTasks = tasks.filter(t => t.status === 'completed').length
-    const inProgressTasks = tasks.filter(t => t.status === 'in-progress').length
     
     const progressSum = tasks.reduce((sum, task) => sum + task.progress, 0)
     return Math.round(progressSum / totalTasks)
@@ -383,11 +378,6 @@ const TaskManager: React.FC = () => {
             <SelectItem value="low">Low</SelectItem>
           </SelectContent>
         </Select>
-
-        <Button onClick={() => setShowAddTask(true)} size="sm">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Task
-        </Button>
       </div>
 
       {/* Task List */}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { jwtDecode } from 'jwt-decode';
 
 interface User {
@@ -59,33 +59,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     permissions: []
   });
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    checkAuthStatus();
-  }, []);
 
-  const checkAuthStatus = async () => {
-    try {
-      const token = localStorage.getItem('access_token');
-      if (token) {
-        const decodedToken = jwtDecode<{ exp: number }>(token);
 
-        // Check if token is expired
-        if ((decodedToken.exp || 0) * 1000 < Date.now()) {
-          await refreshToken();
-        } else {
-          await fetchUserProfile(token);
-        }
-      }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      logout();
-    } finally {
-      setAuthState(prev => ({ ...prev, isLoading: false }));
-    }
-  };
 
-  const fetchUserProfile = async (token: string) => {
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    setAuthState({
+      user: null,
+      token: null,
+      isLoading: false,
+      isAuthenticated: false,
+      permissions: []
+    });
+  }, [setAuthState]);
+
+  const fetchUserProfile = useCallback(async (token: string) => {
     try {
       const response = await fetch('http://localhost:8000/api/auth/profile/', {
         headers: {
@@ -110,7 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Failed to fetch user profile:', error);
       logout();
     }
-  };
+  }, [setAuthState, logout]);
 
   const login = async (email: string, password: string, rememberMe = false): Promise<boolean> => {
     try {
@@ -168,7 +158,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (response.ok) {
-        const data = await response.json();
         // Auto-login after registration
         return await login(userData.email, userData.password);
       } else {
@@ -182,19 +171,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    setAuthState({
-      user: null,
-      token: null,
-      isLoading: false,
-      isAuthenticated: false,
-      permissions: []
-    });
-  };
+  
 
-  const refreshToken = async (): Promise<boolean> => {
+  const refreshToken = useCallback(async (): Promise<boolean> => {
     try {
       const refresh_token = localStorage.getItem('refresh_token');
       if (!refresh_token) {
@@ -222,7 +201,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout();
       return false;
     }
-  };
+  }, [fetchUserProfile, logout]);
+
+  const checkAuthStatus = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        const decodedToken = jwtDecode<{ exp: number }>(token);
+
+        // Check if token is expired
+        if ((decodedToken.exp || 0) * 1000 < Date.now()) {
+          await refreshToken();
+        } else {
+          await fetchUserProfile(token);
+        }
+      }
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      logout();
+    } finally {
+      setAuthState(prev => ({ ...prev, isLoading: false }));
+    }
+  }, [refreshToken, fetchUserProfile, logout, setAuthState]);
 
   const updateProfile = async (data: Partial<User>): Promise<boolean> => {
     try {
@@ -375,6 +375,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     disable2FA,
     verify2FA
   };
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, [checkAuthStatus]);
 
   return (
     <AuthContext.Provider value={contextValue}>

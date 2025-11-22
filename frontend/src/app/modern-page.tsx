@@ -12,9 +12,7 @@ import { ModernHero } from '@/components/hero/ModernHero';
 import { ModernChatInterface } from '@/components/chat/ModernChatInterface';
 import { ModernDashboard } from '@/components/dashboard/ModernDashboard';
 import { 
-  GlassCard, 
   FeatureCard, 
-  AnimatedStatCard, 
   TiltCard,
   PricingCard 
 } from '@/components/ui/animated-card';
@@ -26,21 +24,16 @@ import {
 } from '@/components/ui/background-effects';
 import { PageLoader } from '@/components/ui/loading';
 import { ThemeProvider } from '@/contexts/ThemeContext';
-import { staggerContainer, staggerItem, fadeInUp } from '@/lib/animations';
+import { staggerContainer, staggerItem } from '@/lib/animations';
 import { 
   Brain, 
   Eye, 
   Cpu, 
-  Zap, 
-  Activity, 
-  Shield,
-  Rocket,
-  Globe
+  Zap
 } from 'lucide-react';
 
 export default function ModernHomePage() {
   const [isLoading, setIsLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState('hero');
 
   useEffect(() => {
     // Simulate initial load

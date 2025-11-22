@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,11 +11,10 @@ import {
   getCoordinationSessions, 
   createCoordinationSession, 
   coordinateAgents, 
-  getCoordinationInteractions,
-  getCoordinationMetrics,
   getAgents,
   type CoordinationSession,
-  type Agent 
+  type Agent,
+  type CoordinationResult 
 } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { Activity, GitBranch, Network, Zap, TrendingUp, Users } from 'lucide-react';
@@ -29,14 +28,10 @@ export default function CoordinationDashboard() {
   const [selectedStrategy, setSelectedStrategy] = useState<'sequential' | 'parallel' | 'hierarchical' | 'collaborative'>('sequential');
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [taskDescription, setTaskDescription] = useState('');
-  const [coordinationResult, setCoordinationResult] = useState<any>(null);
+  const [coordinationResult, setCoordinationResult] = useState<CoordinationResult | null>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [sessionsData, agentsData] = await Promise.all([
@@ -45,7 +40,7 @@ export default function CoordinationDashboard() {
       ]);
       setSessions(sessionsData.sessions);
       setAgents(agentsData.results);
-    } catch (error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to load coordination data',
@@ -54,7 +49,11 @@ export default function CoordinationDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleCreateSession = async () => {
     if (!newSessionName.trim()) {
@@ -75,7 +74,7 @@ export default function CoordinationDashboard() {
       });
       setNewSessionName('');
       await loadData();
-    } catch (error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to create coordination session',
@@ -109,7 +108,7 @@ export default function CoordinationDashboard() {
         title: 'Success',
         description: `${result.results.length} agents coordinated successfully`,
       });
-    } catch (error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to coordinate agents',
@@ -201,7 +200,7 @@ export default function CoordinationDashboard() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="strategy">Coordination Strategy</Label>
-              <Select value={selectedStrategy} onValueChange={(value: any) => setSelectedStrategy(value)}>
+              <Select value={selectedStrategy} onValueChange={(value: 'sequential' | 'parallel' | 'hierarchical' | 'collaborative') => setSelectedStrategy(value)}>
                 <SelectTrigger id="strategy">
                   <SelectValue />
                 </SelectTrigger>
@@ -352,7 +351,7 @@ export default function CoordinationDashboard() {
                 </Badge>
               </div>
               <div className="space-y-2">
-                {coordinationResult.results.map((result: any, index: number) => (
+                {coordinationResult.results.map((result: CoordinationResult['results'][number], index: number) => (
                   <div key={index} className="p-3 border rounded">
                     <div className="flex justify-between items-start">
                       <div>

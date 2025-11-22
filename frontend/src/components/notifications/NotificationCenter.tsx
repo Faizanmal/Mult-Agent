@@ -210,7 +210,6 @@ export const NotificationCenter: React.FC = () => {
   const [notificationRules, setNotificationRules] = useState<NotificationRule[]>([]);
   const [settings, setSettings] = useState<NotificationPreferencesType | null>(null);
   const [activeTab, setActiveTab] = useState('notifications');
-  const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -221,7 +220,6 @@ export const NotificationCenter: React.FC = () => {
 
   const loadNotificationData = async () => {
     try {
-      setIsLoading(true);
       const [notificationsRes, templatesRes, campaignsRes, rulesRes, settingsRes] = await Promise.all([
         fetch('/api/notifications/'),
         fetch('/api/notifications/email-templates/'),
@@ -256,8 +254,6 @@ export const NotificationCenter: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to load notification data:', error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -732,7 +728,7 @@ export const NotificationCenter: React.FC = () => {
                         {rule.name}
                         <Switch 
                           checked={rule.enabled} 
-                          onCheckedChange={(checked) => {
+                          onCheckedChange={() => {
                             // Update rule enabled status
                           }} 
                         />

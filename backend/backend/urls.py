@@ -34,6 +34,12 @@ urlpatterns = [
     path('reporting/api/', include('reporting.urls')),
     path('notifications/api/', include('notifications.urls')),
     path('data-pipelines/api/', include('data_pipelines.urls')),
+    # New feature modules
+    path('agent-learning/', include('agent_learning.urls')),
+    path('plugins/', include('plugin_system.urls')),
+    path('webhooks/', include('webhooks.urls')),
+    path('analytics/', include('analytics.urls')),
+    path('workflow-builder/', include('workflow_builder.urls')),
     
     # Direct API routes for frontend
     path('', include('api_integrations.urls', namespace='api_integrations_root')),

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -43,8 +43,7 @@ import {
   Minus,
   Plus,
   RefreshCw,
-  FileSpreadsheet,
-  Upload
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface ReportMetric {
@@ -120,6 +119,7 @@ export const AdvancedReportingDashboard: React.FC = () => {
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [reports, setReports] = useState<CustomReport[]>([]);
   const [activeTab, setActiveTab] = useState('overview');
+  const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplate | null>(null);
   const [selectedReport, setSelectedReport] = useState<CustomReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [dateRange, setDateRange] = useState({
@@ -132,12 +132,7 @@ export const AdvancedReportingDashboard: React.FC = () => {
     status: 'all'
   });
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    loadDashboardData();
-  }, [dateRange, filters]);
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     try {
       setIsLoading(true);
       const [metricsRes, chartsRes, templatesRes, reportsRes] = await Promise.all([
@@ -171,7 +166,11 @@ export const AdvancedReportingDashboard: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [dateRange]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [dateRange, filters, loadDashboardData]);
 
   const generateReport = async (templateId: string) => {
     try {
@@ -367,6 +366,18 @@ export const AdvancedReportingDashboard: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Selected template/report quick info */}
+      {(selectedTemplate || selectedReport) && (
+        <div className="flex items-center gap-4">
+          {selectedTemplate && (
+            <div className="text-sm text-muted-foreground">Selected template: <strong className="text-slate-800">{selectedTemplate.name}</strong></div>
+          )}
+          {selectedReport && (
+            <div className="text-sm text-muted-foreground">Selected report: <strong className="text-slate-800">{selectedReport.name}</strong></div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <Card>
@@ -638,7 +649,7 @@ export const AdvancedReportingDashboard: React.FC = () => {
                     >
                       Generate Report
                     </Button>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" onClick={() => setSelectedTemplate(template)}>
                       <Eye className="w-4 h-4" />
                     </Button>
                   </div>

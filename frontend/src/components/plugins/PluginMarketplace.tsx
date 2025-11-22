@@ -23,77 +23,124 @@ import {
   Search,
   Download,
   Star,
-  Globe,
-  User,
   Package,
-  Plug,
-  Settings,
   TrendingUp,
-  Clock,
-  CheckCircle,
+  Verified,
+  X,
+  Check,
+  Filter,
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+// using sonnerToast for notifications in this component
+import { 
+  getPlugins, 
+  installPlugin as apiInstallPlugin, 
+  uninstallPlugin as apiUninstallPlugin,
+  getPluginInstallations,
+  submitPluginReview,
+  getCustomAgents
+} from '@/lib/api';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { toast as sonnerToast } from 'sonner';
 
 interface PluginType {
   id: string;
   name: string;
+  slug: string;
   description: string;
   version: string;
-  type: 'agent_extension' | 'workflow_node' | 'integration' | 'tool' | 'custom';
-  status: 'active' | 'inactive' | 'pending' | 'rejected';
-  author: {
+  category: string;
+  type?: 'agent_extension' | 'workflow_node' | 'integration' | 'tool' | 'custom';
+  status?: 'active' | 'inactive' | 'pending' | 'rejected';
+  author: string | {
     id: string;
     username: string;
   };
   repository_url?: string;
   documentation_url?: string;
-  configuration_schema: Record<string, unknown>;
-  permissions_required: string[];
-  dependencies: string[];
-  tags: string[];
-  is_public: boolean;
+  configuration_schema?: Record<string, unknown>;
+  permissions_required?: string[];
+  dependencies?: string[];
+  tags?: string[];
+  is_public?: boolean;
+  is_verified?: boolean;
   download_count: number;
   rating: number;
   rating_count: number;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
+  is_installed?: boolean;
+}
+
+interface PluginInstallation {
+  id: string;
+  plugin: PluginType;
+  is_enabled: boolean;
+  usage_count: number;
+  installed_at: string;
+}
+interface CustomAgent {
+  id: string;
+  agent?: { id?: string; name?: string } | null;
+  total_invocations?: number;
+  success_rate?: number; // 0..1
+  capabilities?: string[];
 }
 
 const PluginMarketplace: React.FC = () => {
   const [plugins, setPlugins] = useState<PluginType[]>([]);
+  const [installations, setInstallations] = useState<PluginInstallation[]>([]);
+  const [customAgents, setCustomAgents] = useState<CustomAgent[]>([]);
   const [filteredPlugins, setFilteredPlugins] = useState<PluginType[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortOption, setSortOption] = useState('popular');
   const [selectedPlugin, setSelectedPlugin] = useState<PluginType | null>(null);
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
 
-  const { toast } = useToast();
+  // Using sonnerToast for visible notifications in this component
 
-  const loadPlugins = async () => {
+  const loadPlugins = React.useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('/api/agents/plugins/list_public/');
-      const data = await response.json();
-      setPlugins(data.results);
+      const params = categoryFilter !== 'all' ? { category: categoryFilter } : undefined;
+      
+      const [pluginsRes, installationsRes, customAgentsRes] = await Promise.all([
+        getPlugins(params),
+        getPluginInstallations(),
+        getCustomAgents()
+      ]);
+
+      const pluginsData = pluginsRes.data.results || pluginsRes.data;
+      const installationsData = installationsRes.data.results || installationsRes.data;
+      
+      // Mark installed plugins
+      const installedIds = new Set(installationsData.map((i: PluginInstallation) => i.plugin.id));
+      const pluginsWithInstallStatus = pluginsData.map((p: PluginType) => ({
+        ...p,
+        is_installed: installedIds.has(p.id)
+      }));
+
+      setPlugins(pluginsWithInstallStatus);
+      setInstallations(installationsData);
+      setCustomAgents(customAgentsRes.data.results || customAgentsRes.data);
     } catch (error) {
       console.error('Failed to load plugins:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load plugins from marketplace',
-        variant: 'destructive',
-      });
+      sonnerToast.error('Failed to load plugins from marketplace');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [categoryFilter]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadPlugins();
-  }, []);
+  }, [categoryFilter, loadPlugins]);
 
-  const filterAndSortPlugins = () => {
+  useEffect(() => {
     let result = [...plugins];
     
     // Apply search filter
@@ -101,14 +148,8 @@ const PluginMarketplace: React.FC = () => {
       const term = searchTerm.toLowerCase();
       result = result.filter(plugin => 
         plugin.name.toLowerCase().includes(term) ||
-        plugin.description.toLowerCase().includes(term) ||
-        plugin.tags.some(tag => tag.toLowerCase().includes(term))
+        plugin.description.toLowerCase().includes(term)
       );
-    }
-    
-    // Apply type filter
-    if (typeFilter !== 'all') {
-      result = result.filter(plugin => plugin.type === typeFilter);
     }
     
     // Apply sorting
@@ -120,75 +161,132 @@ const PluginMarketplace: React.FC = () => {
         result.sort((a, b) => b.rating - a.rating);
         break;
       case 'newest':
-        result.sort((a, b) => 
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
+        result.sort((a, b) => {
+          if (!a.created_at || !b.created_at) return 0;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
         break;
       case 'updated':
-        result.sort((a, b) => 
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        );
+        result.sort((a, b) => {
+          if (!a.updated_at || !b.updated_at) return 0;
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+        });
         break;
       default:
         break;
     }
     
     setFilteredPlugins(result);
-  };
+  }, [plugins, searchTerm, sortOption]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    filterAndSortPlugins();
-  }, [plugins, searchTerm, typeFilter, sortOption]);
-
-  const installPlugin = async (plugin: PluginType) => {
+  const installPlugin = async (pluginId: string) => {
     try {
-      // In a real implementation, this would call your API
-      // const response = await fetch(`/api/agents/plugins/${plugin.id}/install/`, {
-      //   method: 'POST',
-      // });
-      
-      toast({
-        title: 'Plugin Installed',
-        description: `${plugin.name} has been installed successfully`,
-      });
+      await apiInstallPlugin(pluginId, {});
+      sonnerToast.success('Plugin installed successfully');
+      loadPlugins();
     } catch (error) {
       console.error('Failed to install plugin:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to install plugin',
-        variant: 'destructive',
+      sonnerToast.error('Failed to install plugin');
+    }
+  };
+
+  const uninstallPlugin = async (pluginId: string) => {
+    try {
+      await apiUninstallPlugin(pluginId);
+      sonnerToast.success('Plugin uninstalled successfully');
+      loadPlugins();
+    } catch (error) {
+      console.error('Failed to uninstall plugin:', error);
+      sonnerToast.error('Failed to uninstall plugin');
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!selectedPlugin) return;
+    
+    try {
+      await submitPluginReview(selectedPlugin.id, {
+        rating: reviewRating,
+        review_text: reviewText
       });
+      sonnerToast.success('Review submitted successfully');
+      setReviewDialogOpen(false);
+      setReviewText('');
+      setReviewRating(5);
+      loadPlugins();
+    } catch (err) {
+      console.error('Failed to submit review:', err);
+      sonnerToast.error('Failed to submit review');
     }
   };
 
-  const getTypeIcon = (type: PluginType['type']) => {
-    switch (type) {
-      case 'agent_extension': return <Plug className="h-4 w-4" />;
-      case 'workflow_node': return <Package className="h-4 w-4" />;
-      case 'integration': return <Globe className="h-4 w-4" />;
-      case 'tool': return <Settings className="h-4 w-4" />;
-      case 'custom': return <User className="h-4 w-4" />;
-      default: return <Plug className="h-4 w-4" />;
-    }
-  };
-
-  const getTypeColor = (type: PluginType['type']) => {
-    switch (type) {
-      case 'agent_extension': return 'bg-blue-100 text-blue-800';
-      case 'workflow_node': return 'bg-purple-100 text-purple-800';
-      case 'integration': return 'bg-green-100 text-green-800';
-      case 'tool': return 'bg-yellow-100 text-yellow-800';
-      case 'custom': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
+  const getAuthorName = (author: string | { id: string; username: string }) => {
+    return typeof author === 'string' ? author : author.username;
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <Package className="h-8 w-8 text-blue-500" />
+            Plugin Marketplace
+          </h1>
+          <p className="text-gray-600 mt-2">
+            Extend your multi-agent system with powerful plugins
+          </p>
+        </div>
+        <Button onClick={loadPlugins}>
+          <Download className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Available Plugins</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{plugins.length}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Installed</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-green-600">{installations.length}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Custom Agents</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-purple-600">{customAgents.length}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Verified</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">
+              {plugins.filter(p => p.is_verified).length}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="flex gap-4">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
             placeholder="Search plugins..."
             value={searchTerm}
@@ -196,263 +294,285 @@ const PluginMarketplace: React.FC = () => {
             className="pl-10"
           />
         </div>
-        <div className="flex gap-2">
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-full sm:w-40">
-              <SelectValue placeholder="Filter by type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="agent_extension">Agent Extensions</SelectItem>
-              <SelectItem value="workflow_node">Workflow Nodes</SelectItem>
-              <SelectItem value="integration">Integrations</SelectItem>
-              <SelectItem value="tool">Tools</SelectItem>
-              <SelectItem value="custom">Custom</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={sortOption} onValueChange={setSortOption}>
-            <SelectTrigger className="w-full sm:w-40">
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="popular">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4" />
-                  Most Popular
-                </div>
-              </SelectItem>
-              <SelectItem value="rating">
-                <div className="flex items-center gap-2">
-                  <Star className="h-4 w-4" />
-                  Highest Rated
-                </div>
-              </SelectItem>
-              <SelectItem value="newest">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  Newest
-                </div>
-              </SelectItem>
-              <SelectItem value="updated">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4" />
-                  Recently Updated
-                </div>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="w-[200px]">
+            <Filter className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">ALL</SelectItem>
+            <SelectItem value="integration">INTEGRATION</SelectItem>
+            <SelectItem value="tool">TOOL</SelectItem>
+            <SelectItem value="data_source">DATA SOURCE</SelectItem>
+            <SelectItem value="notification">NOTIFICATION</SelectItem>
+            <SelectItem value="analytics">ANALYTICS</SelectItem>
+            <SelectItem value="custom_agent">CUSTOM AGENT</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortOption} onValueChange={setSortOption}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="popular">Most Popular</SelectItem>
+            <SelectItem value="rating">Highest Rated</SelectItem>
+            <SelectItem value="newest">Newest</SelectItem>
+            <SelectItem value="updated">Recently Updated</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <Package className="h-12 w-12 animate-pulse text-blue-500 mx-auto mb-4" />
+          <p className="text-gray-600">Loading plugin marketplace...</p>
         </div>
-      ) : filteredPlugins.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Search className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Plugins Found</h3>
-            <p className="text-muted-foreground">
-              No plugins match your search criteria. Try adjusting your filters.
-            </p>
-          </CardContent>
-        </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredPlugins.map((plugin) => (
-            <Card 
-              key={plugin.id} 
-              className="hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => setSelectedPlugin(plugin)}
-            >
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    {getTypeIcon(plugin.type)}
-                    <CardTitle className="text-lg">{plugin.name}</CardTitle>
-                  </div>
-                  <Badge className={getTypeColor(plugin.type)}>
-                    {plugin.type.replace('_', ' ')}
-                  </Badge>
-                </div>
-                <CardDescription className="line-clamp-2">
-                  {plugin.description}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {plugin.tags.slice(0, 3).map((tag) => (
-                    <Badge key={tag} variant="secondary" className="text-xs">
-                      {tag}
-                    </Badge>
-                  ))}
-                  {plugin.tags.length > 3 && (
-                    <Badge variant="secondary" className="text-xs">
-                      +{plugin.tags.length - 3}
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                    <span className="text-sm font-medium">{plugin.rating}</span>
-                    <span className="text-xs text-muted-foreground">
-                      ({plugin.rating_count})
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      {plugin.download_count.toLocaleString()} downloads
-                    </span>
-                    <Button
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        installPlugin(plugin);
-                      }}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Install
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between mt-3 pt-3 border-t text-xs text-muted-foreground">
-                  <span>by {plugin.author.username}</span>
-                  <span>v{plugin.version}</span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Tabs defaultValue="marketplace" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="marketplace">Marketplace</TabsTrigger>
+            <TabsTrigger value="installed">Installed ({installations.length})</TabsTrigger>
+            <TabsTrigger value="custom-agents">Custom Agents ({customAgents.length})</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="marketplace" className="space-y-4">
+            {filteredPlugins.length === 0 ? (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <Search className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">No Plugins Found</h3>
+                  <p className="text-muted-foreground">
+                    No plugins match your search criteria. Try adjusting your filters.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredPlugins.map((plugin) => (
+                  <Card key={plugin.id} className="hover:shadow-lg transition-shadow">
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            {plugin.name}
+                            {plugin.is_verified && (
+                              <Verified className="h-4 w-4 text-blue-500" />
+                            )}
+                          </CardTitle>
+                          <CardDescription className="line-clamp-2 mt-1">
+                            {plugin.description}
+                          </CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex items-center gap-4 text-sm text-gray-600">
+                        <span className="flex items-center gap-1">
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          {plugin.rating.toFixed(1)} ({plugin.rating_count})
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Download className="h-4 w-4" />
+                          {plugin.download_count}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{plugin.category}</Badge>
+                        <Badge variant="secondary">v{plugin.version}</Badge>
+                      </div>
+
+                      <div className="text-xs text-gray-500">
+                        by {getAuthorName(plugin.author)}
+                      </div>
+
+                      <div className="flex gap-2 pt-2">
+                        {plugin.is_installed ? (
+                          <>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="flex-1"
+                              onClick={() => uninstallPlugin(plugin.id)}
+                            >
+                              <X className="mr-1 h-3 w-3" />
+                              Uninstall
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedPlugin(plugin);
+                                setReviewDialogOpen(true);
+                              }}
+                            >
+                              <Star className="mr-1 h-3 w-3" />
+                              Review
+                            </Button>
+                          </>
+                        ) : (
+                          <Button 
+                            size="sm" 
+                            className="flex-1"
+                            onClick={() => installPlugin(plugin.id)}
+                          >
+                            <Download className="mr-1 h-3 w-3" />
+                            Install
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="installed" className="space-y-4">
+            <div className="space-y-4">
+              {installations.map((installation) => (
+                <Card key={installation.id}>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          {installation.plugin.name}
+                          {installation.is_enabled && (
+                            <Badge variant="default">
+                              <Check className="h-3 w-3 mr-1" />
+                              Enabled
+                            </Badge>
+                          )}
+                        </CardTitle>
+                        <CardDescription>{installation.plugin.description}</CardDescription>
+                      </div>
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={() => uninstallPlugin(installation.plugin.id)}
+                      >
+                        Uninstall
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex gap-6 text-sm text-gray-600">
+                      <span>Version: {installation.plugin.version}</span>
+                      <span>Used: {installation.usage_count} times</span>
+                      <span>Installed: {new Date(installation.installed_at).toLocaleDateString()}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {installations.length === 0 && (
+                <Card>
+                  <CardContent className="text-center py-12">
+                    <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No plugins installed yet</p>
+                    <p className="text-sm text-gray-500 mt-2">Browse the marketplace to get started</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="custom-agents" className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {customAgents.map((agent) => (
+                <Card key={agent.id}>
+                  <CardHeader>
+                    <CardTitle>{agent.agent?.name || 'Custom Agent'}</CardTitle>
+                    <CardDescription>Plugin-based agent</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Invocations</span>
+                      <span className="font-semibold">{agent.total_invocations}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Success Rate</span>
+                      <span className="font-semibold">
+                        {typeof agent.success_rate === 'number' ? `${Math.round(agent.success_rate * 100)}%` : 'N/A'}
+                      </span>
+                    </div>
+                    {agent.capabilities && agent.capabilities.length > 0 && (
+                      <div className="pt-2 border-t">
+                        <p className="text-xs text-gray-500 mb-2">Capabilities</p>
+                        <div className="flex flex-wrap gap-1">
+                          {agent.capabilities.map((cap: string, idx: number) => (
+                            <Badge key={idx} variant="secondary" className="text-xs">
+                              {cap}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+              {customAgents.length === 0 && (
+                <Card className="col-span-full">
+                  <CardContent className="text-center py-12">
+                    <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No custom agents created yet</p>
+                    <p className="text-sm text-gray-500 mt-2">Install plugins to create custom agents</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       )}
 
-      {/* Plugin Detail Modal */}
-      {selectedPlugin && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  {getTypeIcon(selectedPlugin.type)}
-                  <div>
-                    <CardTitle className="text-2xl">{selectedPlugin.name}</CardTitle>
-                    <CardDescription>{selectedPlugin.description}</CardDescription>
-                  </div>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => setSelectedPlugin(null)}
-                >
-                  ×
-                </Button>
+      {/* Review Dialog */}
+      <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Review {selectedPlugin?.name}</DialogTitle>
+            <DialogDescription>Share your experience with this plugin</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Rating</Label>
+              <div className="flex gap-2 mt-2">
+                {[1, 2, 3, 4, 5].map((rating) => (
+                  <button
+                    key={rating}
+                    onClick={() => setReviewRating(rating)}
+                    className="focus:outline-none"
+                  >
+                    <Star
+                      className={`h-8 w-8 ${
+                        rating <= reviewRating
+                          ? 'fill-yellow-400 text-yellow-400'
+                          : 'text-gray-300'
+                      }`}
+                    />
+                  </button>
+                ))}
               </div>
-              
-              <div className="flex flex-wrap items-center gap-4 pt-2">
-                <Badge className={getTypeColor(selectedPlugin.type)}>
-                  {selectedPlugin.type.replace('_', ' ')}
-                </Badge>
-                <div className="flex items-center gap-1">
-                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                  <span className="font-medium">{selectedPlugin.rating}</span>
-                  <span className="text-sm text-muted-foreground">
-                    ({selectedPlugin.rating_count} reviews)
-                  </span>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  v{selectedPlugin.version}
-                </div>
-                <div className="flex items-center gap-1 text-sm text-green-600">
-                  <Globe className="h-4 w-4" />
-                  Public
-                </div>
-              </div>
-            </CardHeader>
-            
-            <CardContent className="space-y-6">
-              {/* Plugin Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-lg font-semibold mb-3">Details</h3>
-                  <div className="space-y-3">
-                    <div>
-                      <Label className="text-sm text-muted-foreground">Author</Label>
-                      <p className="font-medium">{selectedPlugin.author.username}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm text-muted-foreground">Downloads</Label>
-                      <p className="font-medium">{selectedPlugin.download_count.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm text-muted-foreground">Published</Label>
-                      <p className="font-medium">
-                        {new Date(selectedPlugin.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div>
-                      <Label className="text-sm text-muted-foreground">Last Updated</Label>
-                      <p className="font-medium">
-                        {new Date(selectedPlugin.updated_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="text-lg font-semibold mb-3">Tags</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedPlugin.tags.map((tag) => (
-                      <Badge key={tag} variant="secondary">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                  
-                  <h3 className="text-lg font-semibold mt-4 mb-3">Dependencies</h3>
-                  {selectedPlugin.dependencies.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {selectedPlugin.dependencies.map((dep, index) => (
-                        <Badge key={index} variant="outline">
-                          {dep}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground text-sm">No dependencies</p>
-                  )}
-                </div>
-              </div>
-              
-              {/* Plugin Actions */}
-              <div className="flex flex-wrap gap-3 pt-4 border-t">
-                <Button
-                  onClick={() => installPlugin(selectedPlugin)}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Install Plugin
-                </Button>
-                
-                {selectedPlugin.repository_url && (
-                  <Button variant="outline" asChild>
-                    <a href={selectedPlugin.repository_url} target="_blank" rel="noopener noreferrer">
-                      Repository
-                    </a>
-                  </Button>
-                )}
-                
-                {selectedPlugin.documentation_url && (
-                  <Button variant="outline" asChild>
-                    <a href={selectedPlugin.documentation_url} target="_blank" rel="noopener noreferrer">
-                      Documentation
-                    </a>
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            </div>
+            <div>
+              <Label htmlFor="review">Review</Label>
+              <Textarea
+                id="review"
+                value={reviewText}
+                onChange={(e) => setReviewText(e.target.value)}
+                placeholder="Share your thoughts about this plugin..."
+                rows={4}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleSubmitReview} className="flex-1">
+                Submit Review
+              </Button>
+              <Button variant="outline" onClick={() => setReviewDialogOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

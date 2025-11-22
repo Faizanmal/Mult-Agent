@@ -50,12 +50,11 @@ interface AutomationMetrics {
 }
 
 interface WorkflowAutomationManagerProps {
-  workflowId: string
   onAutomationUpdate?: (rule: AutomationRule) => void
+  workflowId?: string
 }
 
 const WorkflowAutomationManager: React.FC<WorkflowAutomationManagerProps> = ({
-  workflowId,
   onAutomationUpdate
 }) => {
   const [automationRules, setAutomationRules] = useState<AutomationRule[]>([

@@ -96,17 +96,20 @@ class SessionConsumer(AsyncWebsocketConsumer):
         
         print(f"DEBUG: Session found: {session is not None}")
         if session:
-            print(f"DEBUG: Session name: {session.name}")
-            print(f"DEBUG: Session agents count: {session.agents.count()}")
+            print(f"DEBUG: Session name: {session['name']}")
+            print(f"DEBUG: Session agents count: {session['agents_count']}")
         
         if not session:
             await self.send_error('Session not found')
             return
         
-        # Create message
-        message = await self.create_message(session, user, content, message_type, data.get('metadata', {}))
+        # Create message and get sender info
+        message_info = await self.create_message_with_sender_info(session, user, content, message_type, data.get('metadata', {}))
+        message_id = message_info['id']
+        sender_name = message_info['sender']
+        created_at = message_info['created_at']
         
-        print(f"DEBUG: Message created: {message.id}")
+        print(f"DEBUG: Message created: {message_id}")
         
         # Broadcast to session group
         await self.channel_layer.group_send(
@@ -114,11 +117,11 @@ class SessionConsumer(AsyncWebsocketConsumer):
             {
                 'type': 'chat_message',
                 'message': {
-                    'id': str(message.id),  # Convert UUID to string
+                    'id': message_id,
                     'content': content,
                     'message_type': message_type,
-                    'sender': user.username if user else 'Anonymous',
-                    'timestamp': message.created_at.isoformat()
+                    'sender': sender_name,
+                    'timestamp': created_at
                 }
             }
         )
@@ -128,7 +131,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
         # Process with agents (async)
         print(f"DEBUG: About to call process_with_agents")
         try:
-            result = await self.process_with_agents(session, message, self.session_group_name)
+            result = await self.process_with_agents(session, message_id, content, self.session_group_name)
             print(f"DEBUG: process_with_agents completed successfully with result: {result}")
         except Exception as e:
             print(f"DEBUG: process_with_agents failed with error: {e}")
@@ -152,7 +155,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
     async def handle_stream_request(self, data):
         """Handle streaming request"""
         messages = data.get('messages', [])
-        model = data.get('model', 'mixtral-8x7b-32768')
+        model = data.get('model', 'llama-3.3-70b-versatile')
         
         # Start streaming response
         await self.send(text_data=json.dumps({
@@ -324,26 +327,53 @@ class SessionConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def get_session(self):
-        """Get session from database"""
+        """Get session from database with eager loaded data"""
         try:
             # Try UUID first
             import uuid as uuid_module
             try:
                 session_uuid = uuid_module.UUID(self.session_id)
-                return Session.objects.get(id=session_uuid)
+                session = Session.objects.prefetch_related('agents').get(id=session_uuid)
+                return {
+                    'id': str(session.id),
+                    'name': session.name,
+                    'user_id': str(session.user_id),
+                    'agents_count': session.agents.count(),
+                    'is_active': session.is_active,
+                    'context': session.context,
+                    'session_obj': session  # Keep reference for later use
+                }
             except ValueError:
                 # Fall back to name lookup for string IDs
                 pass
             
             # Try to find session by name for string IDs
             try:
-                return Session.objects.get(name=self.session_id)
+                session = Session.objects.prefetch_related('agents').get(name=self.session_id)
+                return {
+                    'id': str(session.id),
+                    'name': session.name,
+                    'user_id': str(session.user_id),
+                    'agents_count': session.agents.count(),
+                    'is_active': session.is_active,
+                    'context': session.context,
+                    'session_obj': session
+                }
             except Session.DoesNotExist:
                 pass
             
             # Try to find by original session ID in context
             try:
-                return Session.objects.get(context__original_session_id=self.session_id)
+                session = Session.objects.prefetch_related('agents').get(context__original_session_id=self.session_id)
+                return {
+                    'id': str(session.id),
+                    'name': session.name,
+                    'user_id': str(session.user_id),
+                    'agents_count': session.agents.count(),
+                    'is_active': session.is_active,
+                    'context': session.context,
+                    'session_obj': session
+                }
             except Session.DoesNotExist:
                 pass
                 
@@ -356,32 +386,56 @@ class SessionConsumer(AsyncWebsocketConsumer):
     def get_user(self, user_id):
         """Get user from database"""
         try:
-            return User.objects.get(id=user_id)
+            user = User.objects.get(id=user_id)
+            return {
+                'id': str(user.id),
+                'username': user.username,
+                'email': user.email
+            }
         except User.DoesNotExist:
+            return None
             return None
     
     @database_sync_to_async
-    def create_message(self, session, user, content, message_type, metadata):
-        """Create message in database"""
-        return Message.objects.create(
-            session=session,
-            sender=user,
+    def create_message_with_sender_info(self, session, user, content, message_type, metadata):
+        """Create message in database and return serialized info"""
+        # Get the actual session object if it's a dict
+        if isinstance(session, dict):
+            session_obj = session['session_obj']
+        else:
+            session_obj = session
+            
+        # Get user object if it's a dict
+        user_obj = None
+        if user and isinstance(user, dict):
+            user_id = user['id']
+            user_obj = User.objects.get(id=user_id)
+        elif user:
+            user_obj = user
+            
+        message = Message.objects.create(
+            session=session_obj,
+            sender=user_obj,
             content=content,
             message_type=message_type,
             metadata=metadata
         )
+        
+        return {
+            'id': str(message.id),
+            'sender': user_obj.username if user_obj else 'Anonymous',
+            'created_at': message.created_at.isoformat()
+        }
     
-    @database_sync_to_async
-    def process_with_agents(self, session, message, group_name):
-        """Process message with agents using EnhancedAgentCoordinator for better performance"""
+    async def process_with_agents(self, session_data, message_id, message_content, group_name):
+        """Process message with agents using GroqService for better performance"""
         try:
             print(f"DEBUG: Inside process_with_agents method")
-            print(f"DEBUG: Processing with agents for session: {session.name}")
-            print(f"DEBUG: Session agents count: {session.agents.count()}")
-            print(f"DEBUG: Message content: {message.content}")
+            print(f"DEBUG: Processing with agents for session: {session_data['name']}")
+            print(f"DEBUG: Session agents count: {session_data['agents_count']}")
+            print(f"DEBUG: Message content: {message_content}")
             print(f"DEBUG: Group name: {group_name}")
             
-            from .services.enhanced_agent_coordinator import EnhancedAgentCoordinator
             from .services.groq_service import GroqService
             from django.conf import settings
             
@@ -389,66 +443,48 @@ class SessionConsumer(AsyncWebsocketConsumer):
             groq_api_key = settings.GROQ_API_KEY
             if not groq_api_key:
                 print("WARNING: GROQ_API_KEY not set. Using fallback response.")
-                self._send_fallback_response(message, group_name, "Groq API key not configured")
+                await self._async_send_fallback_response(message_id, group_name, "Groq API key not configured")
                 return {"status": "fallback", "reason": "no_api_key"}
             
             # Get the first active agent
-            first_agent = session.agents.filter(is_active=True).first()
-            agent_name = first_agent.name if first_agent else "Master Orchestrator"
+            agent_name = await self.get_first_active_agent(session_data['id'])
+            agent_name = agent_name or "Master Orchestrator"
             
             print(f"DEBUG: Selected agent: {agent_name}")
             
-            # Use EnhancedAgentCoordinator to process the message for better performance
+            # Use lightweight processing instead of EnhancedAgentCoordinator (which has blocking calls)
             try:
-                coordinator = EnhancedAgentCoordinator(session)
-                result = coordinator.process_message(message)
+                # Build conversation context
+                messages_history = [
+                    {"role": "system", "content": f"You are {agent_name}, a helpful AI assistant in a multi-agent system. Provide detailed, informative responses."},
+                    {"role": "user", "content": message_content}
+                ]
                 
-                print(f"DEBUG: EnhancedAgentCoordinator result: {result}")
+                # Get response from Groq service (non-blocking call)
+                groq_service = GroqService()
+                groq_response = groq_service.chat_completion(messages_history)
                 
-                # Extract response content
-                response_content = result.get('response', {}).get('content', '')
+                # Handle response safely
+                if groq_response and isinstance(groq_response, dict):
+                    response_content = groq_response.get('content', groq_response.get('message', 'I apologize, but I encountered an issue processing your request.'))
+                else:
+                    response_content = 'I apologize, but I encountered an issue processing your request.'
                 
-                if not response_content:
-                    # Fallback: use Groq service directly
-                    groq_service = GroqService()
-                    
-                    # Build conversation context
-                    messages_history = [
-                        {"role": "system", "content": f"You are {agent_name}, a helpful AI assistant in a multi-agent system. Provide detailed, informative responses."},
-                        {"role": "user", "content": message.content}
-                    ]
-                    
-                    # Get response from Groq
-                    groq_response = groq_service.chat_completion(messages_history)
-                    response_content = groq_response.get('content', 'I apologize, but I encountered an issue processing your request.')
-                
-                print(f"DEBUG: Final response content: {response_content[:100]}...")
+                if response_content:
+                    print(f"DEBUG: Final response content: {response_content[:100]}...")
                 
             except Exception as e:
-                print(f"ERROR in EnhancedAgentCoordinator: {e}")
+                print(f"ERROR in Groq service: {e}")
                 import traceback
                 traceback.print_exc()
                 
-                # Fallback to direct Groq call
-                try:
-                    groq_service = GroqService()
-                    messages_history = [
-                        {"role": "system", "content": f"You are {agent_name}, a helpful AI assistant."},
-                        {"role": "user", "content": message.content}
-                    ]
-                    groq_response = groq_service.chat_completion(messages_history)
-                    response_content = groq_response.get('content', 'I apologize for the inconvenience.')
-                except Exception as groq_error:
-                    print(f"ERROR in Groq fallback: {groq_error}")
-                    self._send_fallback_response(message, group_name, str(groq_error))
-                    return {"status": "error", "error": str(groq_error)}
+                # Fallback response
+                await self._async_send_fallback_response(message_id, group_name, str(e))
+                return {"status": "error", "error": str(e)}
             
-            # Send response via WebSocket
-            from channels.layers import get_channel_layer
-            from asgiref.sync import async_to_sync
-            
-            channel_layer = get_channel_layer()
-            async_to_sync(channel_layer.group_send)(
+            # Send response via WebSocket using async channel layer call
+            agent_id = await self.get_first_active_agent_id(session_data['id'])
+            await self.channel_layer.group_send(
                 group_name,
                 {
                     "type": "agent_response", 
@@ -456,9 +492,9 @@ class SessionConsumer(AsyncWebsocketConsumer):
                         "content": response_content,
                         "synthesized": True,
                         "orchestrator": agent_name,
-                        "agent_id": str(first_agent.id) if first_agent else None
+                        "agent_id": agent_id
                     },
-                    "original_message_id": str(message.id),
+                    "original_message_id": message_id,
                     "timestamp": datetime.now().isoformat()
                 }
             )
@@ -472,18 +508,14 @@ class SessionConsumer(AsyncWebsocketConsumer):
             import traceback
             traceback.print_exc()
             
-            self._send_error_response(message, group_name, str(e))
+            await self._async_send_error_response(message_id, group_name, str(e))
             return {"status": "error", "error": str(e)}
     
-    def _send_fallback_response(self, message, group_name, reason):
+    async def _async_send_fallback_response(self, message_id, group_name, reason):
         """Send a fallback response when API is not available"""
-        from channels.layers import get_channel_layer
-        from asgiref.sync import async_to_sync
+        fallback_content = f"I received your message. However, I'm currently running in limited mode ({reason}). Please configure the GROQ_API_KEY environment variable for full AI capabilities."
         
-        fallback_content = f"I received your message: '{message.content}'. However, I'm currently running in limited mode ({reason}). Please configure the GROQ_API_KEY environment variable for full AI capabilities."
-        
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
+        await self.channel_layer.group_send(
             group_name,
             {
                 "type": "agent_response",
@@ -493,18 +525,14 @@ class SessionConsumer(AsyncWebsocketConsumer):
                     "orchestrator": "System",
                     "fallback": True
                 },
-                "original_message_id": str(message.id),
+                "original_message_id": message_id,
                 "timestamp": datetime.now().isoformat()
             }
         )
     
-    def _send_error_response(self, message, group_name, error):
+    async def _async_send_error_response(self, message_id, group_name, error):
         """Send an error response"""
-        from channels.layers import get_channel_layer
-        from asgiref.sync import async_to_sync
-        
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
+        await self.channel_layer.group_send(
             group_name,
             {
                 "type": "agent_response",
@@ -514,10 +542,30 @@ class SessionConsumer(AsyncWebsocketConsumer):
                     "orchestrator": "System",
                     "error": True
                 },
-                "original_message_id": str(message.id),
+                "original_message_id": message_id,
                 "timestamp": datetime.now().isoformat()
             }
         )
+    
+    @database_sync_to_async
+    def get_first_active_agent(self, session_id):
+        """Get the name of the first active agent for a session"""
+        try:
+            session = Session.objects.get(id=session_id)
+            agent = session.agents.filter(is_active=True).first()
+            return agent.name if agent else None
+        except Session.DoesNotExist:
+            return None
+    
+    @database_sync_to_async
+    def get_first_active_agent_id(self, session_id):
+        """Get the ID of the first active agent for a session"""
+        try:
+            session = Session.objects.get(id=session_id)
+            agent = session.agents.filter(is_active=True).first()
+            return str(agent.id) if agent else None
+        except Session.DoesNotExist:
+            return None
     
     @database_sync_to_async
     def activate_agent(self, agent_id):

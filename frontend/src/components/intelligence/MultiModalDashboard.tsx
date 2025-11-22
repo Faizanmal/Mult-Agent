@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,8 @@ import {
   getMultiModalSessionDetail,
   getAIModels,
   type MultiModalSession,
-  type AIModelConfig
+  type AIModelConfig,
+  type MultiModalResult
 } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { 
@@ -28,6 +29,24 @@ import {
   TrendingUp
 } from 'lucide-react';
 
+type MultiModalSessionDetail = {
+  id: string;
+  name: string;
+  status: string;
+  input_modalities: string[];
+  results: Record<string, unknown>;
+  modality_results: Array<Record<string, unknown>>;
+  cross_modal_insights: Array<Record<string, unknown>>;
+  created_at: string;
+};
+
+type CrossModalInsight = {
+  type: string;
+  modalities: string[];
+  description: string;
+  confidence: number;
+};
+
 export default function MultiModalDashboard() {
   const [sessions, setSessions] = useState<MultiModalSession[]>([]);
   const [models, setModels] = useState<AIModelConfig[]>([]);
@@ -37,15 +56,11 @@ export default function MultiModalDashboard() {
   const [selectedAudio, setSelectedAudio] = useState<File | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<File | null>(null);
   const [sessionName, setSessionName] = useState('');
-  const [processingResult, setProcessingResult] = useState<any>(null);
-  const [selectedSession, setSelectedSession] = useState<any>(null);
+  const [processingResult, setProcessingResult] = useState<MultiModalResult | null>(null);
+  const [selectedSession, setSelectedSession] = useState<MultiModalSessionDetail | null>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [sessionsData, modelsData] = await Promise.all([
@@ -54,7 +69,7 @@ export default function MultiModalDashboard() {
       ]);
       setSessions(sessionsData.sessions);
       setModels(modelsData.models);
-    } catch (error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to load multi-modal data',
@@ -63,7 +78,11 @@ export default function MultiModalDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'audio' | 'video') => {
     if (e.target.files && e.target.files[0]) {
@@ -119,7 +138,7 @@ export default function MultiModalDashboard() {
       setSelectedAudio(null);
       setSelectedVideo(null);
       setSessionName('');
-    } catch (error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to process multi-modal input',
@@ -135,7 +154,7 @@ export default function MultiModalDashboard() {
       setLoading(true);
       const detail = await getMultiModalSessionDetail(sessionId);
       setSelectedSession(detail);
-    } catch (error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to load session details',
@@ -149,7 +168,7 @@ export default function MultiModalDashboard() {
   const getModalityIcon = (modality: string) => {
     switch (modality.toLowerCase()) {
       case 'text': return <FileText className="h-4 w-4" />;
-      case 'image': return <Image className="h-4 w-4" />;
+      case 'image': return <Image className="h-4 w-4" />; // eslint-disable-line jsx-a11y/alt-text
       case 'audio': return <FileAudio className="h-4 w-4" />;
       case 'video': return <FileVideo className="h-4 w-4" />;
       default: return <Brain className="h-4 w-4" />;
@@ -251,7 +270,7 @@ export default function MultiModalDashboard() {
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label htmlFor="imageInput">
-                <Image className="inline h-4 w-4 mr-2" />
+                <Image className="inline h-4 w-4 mr-2" /> {/* eslint-disable-line jsx-a11y/alt-text */}
                 Image
               </Label>
               <Input
@@ -328,7 +347,7 @@ export default function MultiModalDashboard() {
 
               {processingResult.results && (
                 <div className="space-y-3">
-                  {Object.entries(processingResult.results).map(([key, value]: [string, any]) => (
+                  {Object.entries(processingResult.results).map(([key, value]: [string, unknown]) => (
                     <div key={key} className="p-3 border rounded">
                       <div className="font-medium capitalize mb-2">{key} Analysis</div>
                       <pre className="text-sm bg-muted p-2 rounded overflow-auto max-h-40">
@@ -346,7 +365,7 @@ export default function MultiModalDashboard() {
                     Cross-Modal Insights
                   </h3>
                   <div className="space-y-2">
-                    {processingResult.cross_modal_insights.map((insight: any, index: number) => (
+                    {processingResult.cross_modal_insights.map((insight: CrossModalInsight, index: number) => (
                       <div key={index} className="p-3 bg-muted rounded">
                         <div className="flex justify-between items-start mb-2">
                           <Badge>{insight.type}</Badge>

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,7 +9,6 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Progress } from '@/components/ui/progress'
 import {
@@ -77,14 +76,13 @@ interface ComparisonData {
 }
 
 interface SmartVersionControlProps {
-  workflowId: string
   currentVersion?: string
   onVersionChange?: (versionId: string) => void
   onBranchSwitch?: (branchName: string) => void
+  workflowId?: string
 }
 
 const SmartVersionControl: React.FC<SmartVersionControlProps> = ({
-  workflowId,
   currentVersion = 'v1.2.3',
   onVersionChange,
   onBranchSwitch
@@ -180,15 +178,7 @@ const SmartVersionControl: React.FC<SmartVersionControlProps> = ({
 
   const { toast } = useToast()
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    // Auto-generate comparison when two versions are selected
-    if (selectedVersions.length === 2) {
-      generateComparison(selectedVersions[0], selectedVersions[1])
-    }
-  }, [selectedVersions])
-
-  const generateComparison = (fromId: string, toId: string) => {
+  const generateComparison = useCallback((fromId: string, toId: string) => {
     const fromVersion = versions.find(v => v.id === fromId)
     const toVersion = versions.find(v => v.id === toId)
     
@@ -211,7 +201,14 @@ const SmartVersionControl: React.FC<SmartVersionControlProps> = ({
     }
 
     setComparisonData(comparison)
-  }
+  }, [versions, setComparisonData])
+
+  useEffect(() => {
+    // Auto-generate comparison when two versions are selected
+    if (selectedVersions.length === 2) {
+      generateComparison(selectedVersions[0], selectedVersions[1])
+    }
+  }, [selectedVersions, generateComparison])
 
   const createVersion = () => {
     if (!commitMessage.trim()) {

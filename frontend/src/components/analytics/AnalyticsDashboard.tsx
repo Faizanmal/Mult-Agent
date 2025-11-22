@@ -12,8 +12,6 @@ import {
   Line,
   AreaChart,
   Area,
-  BarChart,
-  Bar,
   PieChart,
   Pie,
   Cell,
@@ -30,14 +28,9 @@ import {
   Activity,
   Clock,
   CheckCircle,
-  AlertTriangle,
   Users,
   Zap,
   Target,
-  BarChart3,
-  PieChart as PieChartIcon,
-  Filter,
-  Calendar,
   Download,
   RefreshCw,
 } from 'lucide-react'
@@ -77,13 +70,12 @@ interface WorkflowStats {
 
 const AnalyticsDashboard: React.FC = () => {
   const [timeRange, setTimeRange] = useState<string>('24h')
-  const [selectedAgent, setSelectedAgent] = useState<string>('all')
   const [activeTab, setActiveTab] = useState('overview')
   const [loading, setLoading] = useState(false)
   
   // Mock data - in real app, this would come from API
   const [performanceData, setPerformanceData] = useState<PerformanceMetric[]>([])
-  const [agentStats, setAgentStats] = useState<AgentStats[]>([
+  const agentStats: AgentStats[] = [
     {
       agent_id: '1',
       name: 'Vision Analyst',
@@ -128,9 +120,9 @@ const AnalyticsDashboard: React.FC = () => {
       status: 'active',
       last_active: '3 minutes ago'
     }
-  ])
+  ]
   
-  const [workflowStats, setWorkflowStats] = useState<WorkflowStats[]>([
+  const workflowStats: WorkflowStats[] = [
     {
       workflow_id: 'wf-1',
       name: 'Content Analysis Pipeline',
@@ -158,7 +150,7 @@ const AnalyticsDashboard: React.FC = () => {
       last_run: '1 hour ago',
       complexity_score: 5.4
     }
-  ])
+  ]
 
   useEffect(() => {
     // Generate mock performance data
@@ -225,8 +217,6 @@ const AnalyticsDashboard: React.FC = () => {
     const remainingSeconds = seconds % 60
     return `${minutes}m ${remainingSeconds.toFixed(1)}s`
   }
-
-  const chartColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']
 
   return (
     <div className="space-y-6">
@@ -478,7 +468,7 @@ const AnalyticsDashboard: React.FC = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {agentStats.map((agent, index) => (
+                {agentStats.map((agent) => (
                   <div key={agent.agent_id} className="p-4 border rounded-lg">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center space-x-3">
@@ -533,7 +523,7 @@ const AnalyticsDashboard: React.FC = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {workflowStats.map((workflow, index) => (
+                {workflowStats.map((workflow) => (
                   <div key={workflow.workflow_id} className="p-4 border rounded-lg">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center space-x-3">

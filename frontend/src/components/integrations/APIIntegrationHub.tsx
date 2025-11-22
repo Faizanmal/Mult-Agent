@@ -100,10 +100,10 @@ export const APIIntegrationHub: React.FC = () => {
   const [selectedIntegration, setSelectedIntegration] = useState<APIIntegration | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadIntegrations();
@@ -121,7 +121,6 @@ export const APIIntegrationHub: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to load integrations:', err);
-      setError('Failed to load API integrations');
     } finally {
       setIsLoading(false);
     }
@@ -198,7 +197,6 @@ export const APIIntegrationHub: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to create integration:', error);
-      setError('Failed to create integration from template');
     }
   };
 
@@ -216,8 +214,8 @@ export const APIIntegrationHub: React.FC = () => {
           setSelectedIntegration(null);
         }
       }
-    } catch (error) {
-      console.error('Failed to delete integration:', error);
+    } catch (err) {
+      console.error('Failed to delete integration:', err);
       setError('Failed to delete integration');
     }
   };
@@ -271,6 +269,9 @@ export const APIIntegrationHub: React.FC = () => {
           </Button>
         </div>
       </div>
+      {error && (
+        <div className="p-2 text-sm text-red-600">{error}</div>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-5">

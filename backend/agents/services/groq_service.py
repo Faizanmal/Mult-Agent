@@ -14,7 +14,7 @@ class GroqService:
         self.client = Groq(
             api_key=settings.GROQ_API_KEY or os.getenv('GROQ_API_KEY')
         )
-        self.default_model = settings.GROQ_CONFIG.get('MODEL', 'mixtral-8x7b-32768')
+        self.default_model = settings.GROQ_CONFIG.get('MODEL', 'llama-3.3-70b-versatile')
         self.default_temperature = settings.GROQ_CONFIG.get('TEMPERATURE', 0.7)
         self.default_max_tokens = settings.GROQ_CONFIG.get('MAX_TOKENS', 2048)
     

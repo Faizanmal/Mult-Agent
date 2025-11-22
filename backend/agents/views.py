@@ -553,7 +553,7 @@ class GroqIntegrationView(viewsets.ViewSet):
     def chat_completion(self, request):
         """Direct Groq API chat completion"""
         messages = request.data.get('messages', [])
-        model = request.data.get('model', 'mixtral-8x7b-32768')
+        model = request.data.get('model', 'llama-3.3-70b-versatile')
         
         groq_service = GroqService()
         response = groq_service.chat_completion(messages, model=model)

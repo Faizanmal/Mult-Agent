@@ -48,7 +48,6 @@ import {
   useInstallPlugin,
   useUninstallPlugin,
   useTogglePluginStatus,
-  useCreatePlugin,
 } from '@/hooks/usePlugins';
 
 interface PluginType {
@@ -199,7 +198,7 @@ const PluginHub: React.FC = () => {
       body: JSON.stringify(newPlugin),
     })
       .then(response => response.json())
-      .then(data => {
+      .then(() => {
         toast({
           title: 'Plugin Created',
           description: `${newPlugin.name} has been created successfully`,
@@ -216,7 +215,7 @@ const PluginHub: React.FC = () => {
         });
         setShowCreateForm(false);
       })
-      .catch(error => {
+      .catch(() => {
         toast({
           title: 'Error',
           description: 'Failed to create plugin',

@@ -11,13 +11,10 @@ import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Plus,
-  Trash2,
   Edit,
-  Settings,
   Play,
   Pause,
   Square,
-  MoreVertical,
   Search,
   Activity,
   Clock,

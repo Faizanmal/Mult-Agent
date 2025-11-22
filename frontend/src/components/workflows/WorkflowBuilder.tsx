@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
@@ -124,11 +125,6 @@ interface TemplateShort {
   description?: string
 }
 
-interface ScheduleConfig {
-  next_run?: string
-  frequency?: string
-}
-
 const stepTypes = [
   { value: 'agent_task', label: 'Agent Task', icon: '🤖', color: '#3b82f6', category: 'agents' },
   { value: 'multi_agent', label: 'Multi-Agent', icon: '👥', color: '#7c3aed', category: 'agents' },
@@ -175,6 +171,9 @@ const WorkflowBuilder: React.FC = () => {
   
   // New enhanced state
   const [showNodeTemplateLibrary, setShowNodeTemplateLibrary] = useState(false)
+  const [showAIAssistant, setShowAIAssistant] = useState(false)
+  const [activeTab, setActiveTab] = useState('builder')
+  const [workflowTemplates, setWorkflowTemplates] = useState<TemplateShort[]>([])
   const [showExecutionMonitor, setShowExecutionMonitor] = useState(false)
   const [workflowViewMode, setWorkflowViewMode] = useState<'design' | 'execution' | 'analysis'>('design')
   const [clipboardNodes, setClipboardNodes] = useState<Node[]>([])
@@ -195,13 +194,9 @@ const WorkflowBuilder: React.FC = () => {
   const [showAutomationManager, setShowAutomationManager] = useState(false)
   const [showCollaborativeSystem, setShowCollaborativeSystem] = useState(false)
   const [showVersionControl, setShowVersionControl] = useState(false)
-  const [showAIAssistant, setShowAIAssistant] = useState(false)
-  const [activeTab, setActiveTab] = useState('builder')
-  const [workflowTemplates, setWorkflowTemplates] = useState<TemplateShort[]>([])
-  const [showTemplateLibrary, setShowTemplateLibrary] = useState(false)
   const [showScheduler, setShowScheduler] = useState(false)
   const [isScheduled, setIsScheduled] = useState(false)
-  const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>({})
+  const [scheduleConfig, setScheduleConfig] = useState<{ next_run?: string | null, frequency?: string | null }>({ next_run: null, frequency: null })
 
   const { toast } = useToast()
 
@@ -249,6 +244,21 @@ const WorkflowBuilder: React.FC = () => {
       description: `${selectedNodeObjects.length} node(s) copied to clipboard`,
     })
   }, [nodes, toast])
+
+  // Load workflow templates on mount
+  useEffect(() => {
+    async function loadTemplates() {
+      try {
+        const res = await fetch('/api/workflow-builder/templates/');
+        const data = await res.json();
+        setWorkflowTemplates(data.templates || data || []);
+      } catch (e) {
+        console.error('Failed to load workflow templates', e);
+      }
+    }
+
+    loadTemplates();
+  }, []);
   
   const handlePasteNodes = useCallback(() => {
     if (clipboardNodes.length === 0) return
@@ -422,7 +432,7 @@ const WorkflowBuilder: React.FC = () => {
     
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleUndo, handleRedo, handleCopyNodes, handlePasteNodes, saveWorkflow])
+  }, [handleUndo, handleRedo, handleCopyNodes, handlePasteNodes, saveWorkflow, selectedNode])
 
   const onConnect = useCallback((connection: Connection) => {
     if (connection.source && connection.target) {
@@ -1174,7 +1184,7 @@ const WorkflowBuilder: React.FC = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="builder" onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid grid-cols-9 w-full text-xs">
             <TabsTrigger value="builder">Builder</TabsTrigger>
             <TabsTrigger value="templates">Templates</TabsTrigger>
@@ -1229,7 +1239,7 @@ const WorkflowBuilder: React.FC = () => {
               <div className="flex justify-between items-center">
                 <h3 className="font-medium">Workflow Templates</h3>
                 <Button 
-                  onClick={() => setShowTemplateLibrary(true)}
+                  onClick={() => setShowNodeTemplateLibrary(true)}
                   size="sm" 
                   variant="outline"
                 >
@@ -1246,13 +1256,13 @@ const WorkflowBuilder: React.FC = () => {
               ) : (
                 <div className="grid gap-3">
                   {workflowTemplates.map((template: TemplateShort) => (
-                    <Card key={template.id} className="p-3 hover:shadow-sm cursor-pointer">
+                      <Card key={template.id} className="p-3 hover:shadow-sm cursor-pointer">
                       <div className="flex justify-between items-start">
                         <div>
                           <h4 className="font-medium text-sm">{template.name}</h4>
                           <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
                         </div>
-                        <Button size="sm" variant="ghost">
+                        <Button size="sm" variant="ghost" onClick={() => addStepNode(template.name?.toLowerCase().replace(/\s+/g, '_') || 'template', { templateId: template.id })}>
                           Use Template
                         </Button>
                       </div>
@@ -1395,6 +1405,18 @@ const WorkflowBuilder: React.FC = () => {
           <TabsContent value="ai-assistant">
             <div className="h-96">
               <AIWorkflowAssistant />
+              {/* Optional inline AI assistant modal handling */}
+              <Dialog open={showAIAssistant} onOpenChange={setShowAIAssistant}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>AI Assistant</DialogTitle>
+                    <DialogDescription>Generate suggestions and help for your workflow</DialogDescription>
+                  </DialogHeader>
+                  <div className="p-4">
+                    <AIWorkflowAssistant />
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
           </TabsContent>
           
@@ -1958,6 +1980,53 @@ const WorkflowBuilder: React.FC = () => {
           
           <div className="h-[75vh] overflow-auto">
             <WorkflowAutomationManager workflowId={`workflow_${Date.now()}`} />
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Scheduler Dialog */}
+      <Dialog open={showScheduler} onOpenChange={setShowScheduler}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Workflow Scheduler</DialogTitle>
+            <DialogDescription>Configure automatic workflow runs and schedules.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 p-2">
+            <div className="flex items-center gap-2">
+              <Label>Enabled</Label>
+              <Switch checked={isScheduled} onCheckedChange={(v) => setIsScheduled(Boolean(v))} />
+            </div>
+
+            <div>
+              <Label>Next run (ISO)</Label>
+              <Input
+                value={scheduleConfig.next_run || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setScheduleConfig({ ...scheduleConfig, next_run: e.target.value })}
+                placeholder="e.g., 2025-12-01T12:00:00Z"
+              />
+            </div>
+
+            <div>
+              <Label>Frequency</Label>
+              <Select value={scheduleConfig.frequency || 'daily'} onValueChange={(val: string) => setScheduleConfig({ ...scheduleConfig, frequency: val })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="one-time">One-time</SelectItem>
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => {
+                setIsScheduled(false);
+                setScheduleConfig({ next_run: null, frequency: null });
+                setShowScheduler(false);
+              }}>Cancel</Button>
+              <Button onClick={() => { setShowScheduler(false); toast({ title: 'Scheduler saved', description: 'Workflow schedule updated' }); }}>Save</Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

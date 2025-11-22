@@ -63,15 +63,20 @@ interface WorkflowActivity {
   type: 'edit' | 'comment' | 'share' | 'execute'
 }
 
+export interface CollaborationUpdate {
+  event: string
+  payload?: unknown
+}
+
 interface CollaborativeWorkflowSystemProps {
-  workflowId: string
   currentUserId: string
-  onCollaborationUpdate?: (data: unknown) => void
+  workflowId?: string
+  onCollaborationUpdate?: (data: CollaborationUpdate) => void
 }
 
 const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = ({
-  workflowId,
   currentUserId,
+  workflowId,
   onCollaborationUpdate
 }) => {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([
@@ -215,6 +220,10 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
       title: 'Comment Added',
       description: 'Your comment has been posted successfully',
     })
+
+    if (onCollaborationUpdate) {
+      onCollaborationUpdate({ event: 'comment_added', payload: comment })
+    }
   }
 
   const inviteMember = () => {
@@ -239,6 +248,10 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
       title: 'Invitation Sent',
       description: `Invitation sent to ${newMemberEmail}`,
     })
+
+    if (onCollaborationUpdate) {
+      onCollaborationUpdate({ event: 'member_invited', payload: newMember })
+    }
   }
 
   const toggleCommentResolution = (commentId: string) => {
@@ -270,6 +283,10 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
       title: 'Role Updated',
       description: `Member role updated to ${newRole}`,
     })
+
+    if (onCollaborationUpdate) {
+      onCollaborationUpdate({ event: 'member_role_changed', payload: { memberId, newRole } })
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -305,6 +322,9 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
         </div>
         
         <div className="flex items-center gap-2">
+          {workflowId && (
+            <div className="text-xs text-muted-foreground mr-3">Workflow: <span className="font-medium">{workflowId}</span></div>
+          )}
           <Button
             size="sm"
             variant="outline"

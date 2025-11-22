@@ -586,7 +586,7 @@ class ApiClient {
     return response.data;
   }
 
-  public async executeWorkflow(workflowDefinition: WorkflowDefinition, inputData: Record<string, unknown> = {}): Promise<WorkflowExecution> {
+  public async executeAgentWorkflow(workflowDefinition: WorkflowDefinition, inputData: Record<string, unknown> = {}): Promise<WorkflowExecution> {
     const response = await this.client.post('/agents/api/workflows/execute_workflow/', {
       workflow_definition: workflowDefinition,
       input_data: inputData
@@ -594,7 +594,7 @@ class ApiClient {
     return response.data;
   }
 
-  public async getWorkflowStatus(workflowId: string): Promise<Record<string, unknown>> {
+  public async getAgentWorkflowStatus(workflowId: string): Promise<Record<string, unknown>> {
     const response = await this.client.get(`/agents/api/workflows/workflow_status/?workflow_id=${workflowId}`);
     return response.data;
   }
@@ -604,12 +604,12 @@ class ApiClient {
     return response.data;
   }
 
-  public async getWorkflowTemplates(): Promise<{ templates: WorkflowTemplate[] }> {
+  public async getAgentWorkflowTemplates(): Promise<{ templates: WorkflowTemplate[] }> {
     const response = await this.client.get('/agents/api/workflows/workflow_templates/');
     return response.data;
   }
 
-  public async createWorkflowTemplate(template: Partial<WorkflowTemplate>): Promise<WorkflowTemplate> {
+  public async createAgentWorkflowTemplate(template: Partial<WorkflowTemplate>): Promise<WorkflowTemplate> {
     const response = await this.client.post('/agents/api/workflows/create_template/', template);
     return response.data;
   }
@@ -843,8 +843,8 @@ class ApiClient {
     return response.data;
   }
 
-  // Notification APIs
-  public async getNotifications(): Promise<{ notifications: NotificationData[] }> {
+  // Notification APIs (old - kept for backward compatibility)
+  public async getAgentNotifications(): Promise<{ notifications: NotificationData[] }> {
     const response = await this.client.get('/agents/api/notifications/list_notifications/');
     return response.data;
   }
@@ -998,7 +998,7 @@ class ApiClient {
     await this.client.delete(`/reporting/api/reports/${id}/`);
   }
 
-  public async generateReport(id: string, parameters: Record<string, unknown> = {}): Promise<{ report_data: Record<string, unknown>; generated_at: string }> {
+  public async generateLegacyReport(id: string, parameters: Record<string, unknown> = {}): Promise<{ report_data: Record<string, unknown>; generated_at: string }> {
     const response = await this.client.post(`/reporting/api/reports/${id}/generate/`, parameters);
     return response.data;
   }
@@ -1159,57 +1159,57 @@ class ApiClient {
     return response.data;
   }
 
-  // Plugin Management APIs
-  public async getPlugins(): Promise<PaginatedResponse<Plugin>> {
+  // Agent Plugin Management APIs (deprecated - use Plugin System instead)
+  public async getAgentPlugins(): Promise<PaginatedResponse<Plugin>> {
     const response: AxiosResponse<PaginatedResponse<Plugin>> = await this.client.get('/agents/api/plugins/');
     return response.data;
   }
 
-  public async getPlugin(id: string): Promise<Plugin> {
+  public async getAgentPlugin(id: string): Promise<Plugin> {
     const response: AxiosResponse<Plugin> = await this.client.get(`/agents/api/plugins/${id}/`);
     return response.data;
   }
 
-  public async createPlugin(pluginData: Partial<Plugin>): Promise<Plugin> {
+  public async createAgentPlugin(pluginData: Partial<Plugin>): Promise<Plugin> {
     const response: AxiosResponse<Plugin> = await this.client.post('/agents/api/plugins/', pluginData);
     return response.data;
   }
 
-  public async updatePlugin(id: string, pluginData: Partial<Plugin>): Promise<Plugin> {
+  public async updateAgentPlugin(id: string, pluginData: Partial<Plugin>): Promise<Plugin> {
     const response: AxiosResponse<Plugin> = await this.client.patch(`/agents/api/plugins/${id}/`, pluginData);
     return response.data;
   }
 
-  public async deletePlugin(id: string): Promise<void> {
+  public async deleteAgentPlugin(id: string): Promise<void> {
     await this.client.delete(`/agents/api/plugins/${id}/`);
   }
 
-  public async publishPlugin(id: string): Promise<{ status: string }> {
+  public async publishAgentPlugin(id: string): Promise<{ status: string }> {
     const response: AxiosResponse<{ status: string }> = await this.client.post(`/agents/api/plugins/${id}/publish/`);
     return response.data;
   }
 
-  public async unpublishPlugin(id: string): Promise<{ status: string }> {
+  public async unpublishAgentPlugin(id: string): Promise<{ status: string }> {
     const response: AxiosResponse<{ status: string }> = await this.client.post(`/agents/api/plugins/${id}/unpublish/`);
     return response.data;
   }
 
-  public async getPublicPlugins(): Promise<PaginatedResponse<Plugin>> {
+  public async getPublicAgentPlugins(): Promise<PaginatedResponse<Plugin>> {
     const response: AxiosResponse<PaginatedResponse<Plugin>> = await this.client.get('/agents/api/plugins/list_public/');
     return response.data;
   }
 
-  public async installPlugin(pluginId: string): Promise<PluginInstallation> {
+  public async installAgentPlugin(pluginId: string): Promise<PluginInstallation> {
     const response: AxiosResponse<PluginInstallation> = await this.client.post(`/agents/api/plugins/${pluginId}/install/`);
     return response.data;
   }
 
-  public async uninstallPlugin(installationId: string): Promise<{ status: string }> {
+  public async uninstallAgentPlugin(installationId: string): Promise<{ status: string }> {
     const response: AxiosResponse<{ status: string }> = await this.client.post(`/agents/api/plugins/${installationId}/uninstall/`);
     return response.data;
   }
 
-  public async ratePlugin(pluginId: string, ratingData: { rating: number; review?: string }): Promise<{ status: string }> {
+  public async rateAgentPlugin(pluginId: string, ratingData: { rating: number; review?: string }): Promise<{ status: string }> {
     const response: AxiosResponse<{ status: string }> = await this.client.post(`/agents/api/plugins/${pluginId}/rate/`, ratingData);
     return response.data;
   }
@@ -1323,6 +1323,229 @@ class ApiClient {
     const response = await this.client.get(`/intelligence/api/intelligence/${sessionId}/session_detail/`);
     return response.data;
   }
+
+  // ==================== NEW FEATURE METHODS ====================
+  
+  // Agent Learning & Adaptation Methods
+  public async getLearningProfiles(): Promise<AxiosResponse> {
+    return this.client.get('/agent-learning/profiles/');
+  }
+  
+  public async recordExperience(profileId: string, data: {
+    state: Record<string, unknown>;
+    action: Record<string, unknown>;
+    reward: number;
+    success: boolean;
+    execution_time: number;
+    task_type: string;
+  }): Promise<AxiosResponse> {
+    return this.client.post(`/agent-learning/profiles/${profileId}/record_experience/`, data);
+  }
+  
+  public async getRecommendations(profileId: string, state: Record<string, unknown>): Promise<AxiosResponse> {
+    return this.client.get(`/agent-learning/profiles/${profileId}/get_recommendations/`, {
+      params: { state: JSON.stringify(state) }
+    });
+  }
+  
+  public async updateSkill(profileId: string, data: {
+    skill_name: string;
+    skill_category: string;
+    success: boolean;
+    execution_time: number;
+  }): Promise<AxiosResponse> {
+    return this.client.post(`/agent-learning/profiles/${profileId}/update_skill/`, data);
+  }
+  
+  public async getTopPerformers(): Promise<AxiosResponse> {
+    return this.client.get('/agent-learning/profiles/top_performers/');
+  }
+  
+  public async getLearningHistory(profileId: string): Promise<AxiosResponse> {
+    return this.client.get(`/agent-learning/profiles/${profileId}/learning_history/`);
+  }
+  
+  public async getAdaptiveStrategies(): Promise<AxiosResponse> {
+    return this.client.get('/agent-learning/strategies/');
+  }
+  
+  public async recommendStrategy(data: {
+    task_description: string;
+    complexity: string;
+    agents: string[];
+  }): Promise<AxiosResponse> {
+    return this.client.post('/agent-learning/strategies/recommend_strategy/', data);
+  }
+  
+  public async recordStrategyUsage(strategyId: string, data: {
+    success: boolean;
+    completion_time: number;
+    session_id?: string;
+  }): Promise<AxiosResponse> {
+    return this.client.post(`/agent-learning/strategies/${strategyId}/record_usage/`, data);
+  }
+  
+  public async getTopStrategies(): Promise<AxiosResponse> {
+    return this.client.get('/agent-learning/strategies/top_strategies/');
+  }
+  
+  // Plugin System Methods
+  public async getPlugins(params?: { category?: string; verified?: boolean }): Promise<AxiosResponse> {
+    return this.client.get('/plugins/marketplace/', { params });
+  }
+  
+  public async installPlugin(pluginId: string, config?: Record<string, unknown>): Promise<AxiosResponse> {
+    return this.client.post(`/plugins/marketplace/${pluginId}/install/`, { config });
+  }
+  
+  public async uninstallPlugin(pluginId: string): Promise<AxiosResponse> {
+    return this.client.post(`/plugins/marketplace/${pluginId}/uninstall/`);
+  }
+  
+  public async getPluginInstallations(): Promise<AxiosResponse> {
+    return this.client.get('/plugins/installations/');
+  }
+  
+  public async getCustomAgents(): Promise<AxiosResponse> {
+    return this.client.get('/plugins/custom-agents/');
+  }
+  
+  public async submitPluginReview(pluginId: string, data: {
+    rating: number;
+    review_text: string;
+  }): Promise<AxiosResponse> {
+    return this.client.post(`/plugins/marketplace/${pluginId}/review/`, data);
+  }
+  
+  // Webhook & Notification Methods
+  public async getWebhooks(): Promise<AxiosResponse> {
+    return this.client.get('/webhooks/endpoints/');
+  }
+  
+  public async createWebhook(data: {
+    name: string;
+    url: string;
+    subscribed_events: string[];
+    secret_key: string;
+  }): Promise<AxiosResponse> {
+    return this.client.post('/webhooks/endpoints/', data);
+  }
+  
+  public async testWebhook(webhookId: string): Promise<AxiosResponse> {
+    return this.client.post(`/webhooks/endpoints/${webhookId}/test/`);
+  }
+  
+  public async getWebhookDeliveries(webhookId: string): Promise<AxiosResponse> {
+    return this.client.get(`/webhooks/endpoints/${webhookId}/deliveries/`);
+  }
+  
+  public async getWebhookNotifications(): Promise<AxiosResponse> {
+    return this.client.get('/webhooks/notifications/');
+  }
+  
+  public async markNotificationRead(notificationId: string): Promise<AxiosResponse> {
+    return this.client.post(`/webhooks/notifications/${notificationId}/mark_read/`);
+  }
+  
+  public async markAllNotificationsRead(): Promise<AxiosResponse> {
+    return this.client.post('/webhooks/notifications/mark_all_read/');
+  }
+  
+  public async getUnreadCount(): Promise<AxiosResponse> {
+    return this.client.get('/webhooks/notifications/unread_count/');
+  }
+  
+  public async deleteWebhook(webhookId: string): Promise<AxiosResponse> {
+    return this.client.delete(`/webhooks/endpoints/${webhookId}/`);
+  }
+  
+  public async getNotifications(params?: { is_read?: boolean }): Promise<{ notifications: unknown[] }> {
+    const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
+    const response = await this.client.get(`/webhooks/notifications/${queryString}`);
+    return { notifications: response.data.results || response.data };
+  }
+  
+  // Analytics Methods
+  public async getAnalyticsReports(): Promise<AxiosResponse> {
+    return this.client.get('/analytics/reports/');
+  }
+  
+  public async generateAnalyticsReport(data: {
+    report_type: string;
+    start_date?: string;
+    end_date?: string;
+  }): Promise<AxiosResponse> {
+    return this.client.post('/analytics/reports/generate/', data);
+  }
+  
+  public async getPerformanceTrends(params?: { time_range?: string }): Promise<AxiosResponse> {
+    const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
+    return this.client.get(`/analytics/performance-trends/${queryString}`);
+  }
+  
+  public async getPredictiveInsights(): Promise<AxiosResponse> {
+    return this.client.get('/analytics/predictive-insights/');
+  }
+  
+  public async generateReport(reportId: string): Promise<{ report_data: Record<string, unknown>; generated_at: string }> {
+    const response = await this.client.post(`/analytics/reports/${reportId}/generate/`);
+    return { report_data: response.data, generated_at: new Date().toISOString() };
+  }
+  
+  public async getAnalyticsPredictions(): Promise<AxiosResponse> {
+    return this.client.get('/analytics/predictions/');
+  }
+  
+  // Workflow Builder Methods  
+  public async getWorkflowTemplates(params?: { category?: string }): Promise<AxiosResponse> {
+    return this.client.get('/workflow-builder/templates/', { params });
+  }
+  
+  public async createWorkflowTemplate(data: {
+    name: string;
+    description: string;
+    category: string;
+    workflow_definition: Record<string, unknown>;
+  }): Promise<AxiosResponse> {
+    return this.client.post('/workflow-builder/templates/', data);
+  }
+  
+  public async cloneWorkflowTemplate(templateId: string): Promise<AxiosResponse> {
+    return this.client.post(`/workflow-builder/templates/${templateId}/clone/`);
+  }
+  
+  public async getWorkflows(): Promise<AxiosResponse> {
+    return this.client.get('/workflow-builder/workflows/');
+  }
+  
+  public async createWorkflow(data: {
+    name: string;
+    description: string;
+    nodes: Array<Record<string, unknown>>;
+    edges: Array<Record<string, unknown>>;
+  }): Promise<AxiosResponse> {
+    return this.client.post('/workflow-builder/workflows/', data);
+  }
+  
+  public async executeWorkflow(workflowId: string, data?: Record<string, unknown>): Promise<AxiosResponse> {
+    return this.client.post(`/workflow-builder/workflows/${workflowId}/execute/`, data);
+  }
+  
+  public async validateWorkflow(workflowId: string): Promise<AxiosResponse> {
+    return this.client.post(`/workflow-builder/workflows/${workflowId}/validate/`);
+  }
+  
+  public async deleteWorkflowTemplate(templateId: string): Promise<AxiosResponse> {
+    return this.client.delete(`/workflow-builder/templates/${templateId}/`);
+  }
+  
+  public async executeWorkflowTemplate(templateId: string, data?: Record<string, unknown>): Promise<AxiosResponse> {
+    return this.client.post(`/workflow-builder/templates/${templateId}/execute/`, data);
+  }
+  
+  public async getWorkflowExecutions(): Promise<AxiosResponse> {
+    return this.client.get('/workflow-builder/executions/');
+  }
 }
 
 // Export singleton instance
@@ -1385,7 +1608,7 @@ export const {
   createReport,
   updateReport,
   deleteReport,
-  generateReport,
+  generateLegacyReport,
   exportReport,
   getReportTemplates,
   scheduleReport,
@@ -1421,11 +1644,11 @@ export const {
   schedulePipeline,
   // Workflow methods
   saveWorkflow,
-  executeWorkflow,
-  getWorkflowStatus,
+  executeAgentWorkflow,
+  getAgentWorkflowStatus,
   cancelWorkflow,
-  getWorkflowTemplates,
-  createWorkflowTemplate,
+  getAgentWorkflowTemplates,
+  createAgentWorkflowTemplate,
   // Analytics methods
   getAnalyticsDashboard,
   getSystemPerformance,
@@ -1467,8 +1690,8 @@ export const {
   getCollaborationComments,
   getCollaborationActivity,
   updateCollaborationPresence,
-  // Notification methods
-  getNotifications,
+  // Notification methods (old agent notifications)
+  getAgentNotifications,
   markNotificationAsRead,
   // Multi-Agent Coordination methods
   getCoordinationSessions,
@@ -1483,4 +1706,51 @@ export const {
   crossModalAnalysis,
   getMultiModalSessions,
   getMultiModalSessionDetail,
+  // Agent Learning methods
+  getLearningProfiles,
+  recordExperience,
+  getRecommendations,
+  updateSkill,
+  getTopPerformers,
+  getLearningHistory,
+  getAdaptiveStrategies,
+  recommendStrategy,
+  recordStrategyUsage,
+  getTopStrategies,
+  // Plugin System methods
+  getPlugins,
+  installPlugin,
+  uninstallPlugin,
+  getPluginInstallations,
+  getCustomAgents,
+  submitPluginReview,
+  // Webhook methods
+  getWebhooks,
+  createWebhook,
+  testWebhook,
+  getWebhookDeliveries,
+  getWebhookNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  getUnreadCount,
+  deleteWebhook,
+  getNotifications,
+  // Analytics methods
+  getAnalyticsReports,
+  generateAnalyticsReport,
+  getAnalyticsPredictions,
+  getPerformanceTrends,
+  getPredictiveInsights,
+  generateReport,
+  // Workflow Builder methods
+  getWorkflowTemplates,
+  createWorkflowTemplate,
+  cloneWorkflowTemplate,
+  getWorkflows,
+  createWorkflow,
+  executeWorkflow,
+  validateWorkflow,
+  deleteWorkflowTemplate,
+  executeWorkflowTemplate,
+  getWorkflowExecutions,
 } = apiClient;

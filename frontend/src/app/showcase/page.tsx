@@ -12,31 +12,24 @@ import {
   TiltCard, 
   FeatureCard, 
   AnimatedStatCard,
-  GradientBorderCard,
   PricingCard,
-  HoverGlowCard,
-  MagneticCard
+  HoverGlowCard
 } from '@/components/ui/animated-card';
 import {
   GridBackground,
   FloatingParticles,
   AnimatedGradientMesh,
-  SpotlightEffect,
   AuroraBackground,
   GlowOrbs,
-  DotPattern,
-  WaveAnimation
+  DotPattern
 } from '@/components/ui/background-effects';
 import {
   Spinner,
   PulseLoader,
   GradientSpinner,
-  Skeleton,
   CardSkeleton,
-  PageLoader,
   ProgressBar,
-  CircularProgress,
-  BouncingDots
+  CircularProgress
 } from '@/components/ui/loading';
 import {
   ModernButton,
@@ -48,7 +41,6 @@ import {
   SplitButton,
   GradientButton
 } from '@/components/ui/modern-button';
-import { staggerContainer, staggerItem } from '@/lib/animations';
 import { Sparkles, Zap, Heart, Star, Plus } from 'lucide-react';
 
 export default function ComponentShowcase() {
