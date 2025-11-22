@@ -72,7 +72,7 @@ interface ComparisonData {
     nodesRemoved: string[]
     nodesModified: string[]
     edgesChanged: string[]
-    configChanges: Record<string, any>
+    configChanges: Record<string, unknown>
   }
 }
 
@@ -180,6 +180,7 @@ const SmartVersionControl: React.FC<SmartVersionControlProps> = ({
 
   const { toast } = useToast()
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     // Auto-generate comparison when two versions are selected
     if (selectedVersions.length === 2) {
@@ -689,11 +690,11 @@ const SmartVersionControl: React.FC<SmartVersionControlProps> = ({
                             <code className="text-sm font-mono">{key}</code>
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className="text-red-600">
-                                {JSON.stringify(change.from)}
+                                {JSON.stringify((change as { from: unknown; to: unknown }).from)}
                               </Badge>
                               <ArrowRight className="w-4 h-4" />
                               <Badge variant="outline" className="text-green-600">
-                                {JSON.stringify(change.to)}
+                                {JSON.stringify((change as { from: unknown; to: unknown }).to)}
                               </Badge>
                             </div>
                           </div>

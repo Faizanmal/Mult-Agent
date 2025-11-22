@@ -648,10 +648,10 @@ const ConfigurationPanel: React.FC<{
               <Label htmlFor="auth_type">Authentication Type</Label>
               <Select
                 value={formData.authentication.type}
-                onValueChange={(value: any) => 
+                onValueChange={(value: string) => 
                   setFormData({ 
                     ...formData, 
-                    authentication: { ...formData.authentication, type: value }
+                    authentication: { ...formData.authentication, type: value as 'none' | 'api_key' | 'bearer' | 'basic' | 'oauth2' }
                   })
                 }
               >

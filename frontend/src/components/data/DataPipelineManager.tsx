@@ -51,19 +51,19 @@ import {
   };
   source: {
     type: 'database' | 'api' | 'file' | 'stream' | 'webhook';
-    config: Record<string, any>;
+    config: Record<string, unknown>;
     connection_id?: string;
   };
   destinations: Array<{
     type: 'database' | 'api' | 'file' | 'stream' | 'warehouse';
-    config: Record<string, any>;
+    config: Record<string, unknown>;
     connection_id?: string;
   }>;
   transformations: Array<{
     id: string;
     name: string;
     type: 'filter' | 'map' | 'aggregate' | 'join' | 'custom';
-    config: Record<string, any>;
+    config: Record<string, unknown>;
     order: number;
   }>;
   monitoring: {
@@ -148,7 +148,7 @@ interface DataQualityRule {
   pipeline_id: string;
   rule_type: 'not_null' | 'unique' | 'range' | 'regex' | 'custom';
   field: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   severity: 'low' | 'medium' | 'high' | 'critical';
   enabled: boolean;
   last_check: {

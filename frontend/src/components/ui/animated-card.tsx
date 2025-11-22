@@ -8,7 +8,7 @@
 import React, { ReactNode, useRef } from 'react';
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { cardHover, fadeInUp, glassCard, scaleIn } from '@/lib/animations';
+import { fadeInUp, glassCard, scaleIn } from '@/lib/animations';
 import { useTiltEffect } from '@/hooks/useAnimations';
 
 // ============================================
@@ -117,7 +117,8 @@ export function GradientBorderCard({
 }: GradientBorderCardProps) {
   return (
     <motion.div
-      className={cn('relative rounded-2xl p-[1px]', className)}
+      className={cn('relative rounded-2xl', className)}
+      style={{ padding: borderWidth }}
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true }}

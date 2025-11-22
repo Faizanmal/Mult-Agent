@@ -7,7 +7,7 @@
 
 import React, { ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, ArrowRight, Download, Plus } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ============================================

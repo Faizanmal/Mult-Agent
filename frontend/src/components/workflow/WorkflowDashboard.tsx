@@ -36,7 +36,7 @@ interface WorkflowTemplate {
   description: string;
   category: string;
   step_count: number;
-  input_schema: unknown;
+  input_schema: Record<string, string>;
 }
 
 interface WorkflowExecution {
@@ -60,7 +60,7 @@ interface WorkflowExecution {
   }>;
 }
 
-const categoryIcons: Record<string, any> = {
+const categoryIcons: Record<string, React.ComponentType<React.SVGProps<SVGSVGElement>>> = {
   data_analysis: BarChart,
   customer_support: Sparkles,
   content_creation: FileText,
@@ -140,7 +140,7 @@ export default function WorkflowDashboard() {
   const [execution, setExecution] = useState<WorkflowExecution | null>(null);
   const [quickStartInput, setQuickStartInput] = useState('');
   const [selectedQuickStart, setSelectedQuickStart] = useState<string | null>(null);
-  const [inputData, setInputData] = useState<Record<string, any>>({});
+  const [inputData, setInputData] = useState<Record<string, unknown>>({});
   const [activeTab, setActiveTab] = useState('quick-start');
 
   useEffect(() => {
@@ -210,7 +210,7 @@ export default function WorkflowDashboard() {
     }
   };
 
-  const executeWorkflow = async (workflowId: string, inputs: Record<string, any>) => {
+  const executeWorkflow = async (workflowId: string, inputs: Record<string, unknown>) => {
     setLoading(true);
     setExecution(null);
 
@@ -431,7 +431,7 @@ export default function WorkflowDashboard() {
                         <Label>{key.replace('_', ' ').toUpperCase()}</Label>
                         <Input
                           placeholder={`Enter ${key}...`}
-                          value={inputData[key] || ''}
+                          value={String(inputData[key] || '')}
                           onChange={(e) =>
                             setInputData({ ...inputData, [key]: e.target.value })
                           }

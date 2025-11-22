@@ -59,6 +59,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     permissions: []
   });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     checkAuthStatus();
   }, []);
@@ -67,10 +68,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const token = localStorage.getItem('access_token');
       if (token) {
-        const decodedToken: any = jwtDecode(token);
-        
+        const decodedToken = jwtDecode<{ exp: number }>(token);
+
         // Check if token is expired
-        if (decodedToken.exp * 1000 < Date.now()) {
+        if ((decodedToken.exp || 0) * 1000 < Date.now()) {
           await refreshToken();
         } else {
           await fetchUserProfile(token);

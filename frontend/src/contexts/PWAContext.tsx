@@ -13,6 +13,10 @@ interface PWAContextType {
   updateApp: () => Promise<void>;
   syncStatus: 'idle' | 'syncing' | 'completed' | 'failed';
   pendingActions: number;
+  cacheWorkflow: (workflow: unknown) => void;
+  cacheTask: (task: unknown) => void;
+  requestPersistentStorage: () => Promise<boolean>;
+  getStorageEstimate: () => Promise<unknown | null>;
 }
 
 const PWAContext = createContext<PWAContextType | undefined>(undefined);
@@ -34,10 +38,10 @@ export const PWAProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Check if app is running in standalone mode
     const checkStandalone = () => {
       const isStandaloneMode = window.matchMedia('(display-mode: standalone)').matches ||
-                             (window.navigator as any).standalone ||
+                             (window.navigator as unknown as { standalone?: boolean }).standalone ||
                              document.referrer.includes('android-app://');
-      setIsStandalone(isStandaloneMode);
-      setIsInstalled(isStandaloneMode);
+      setIsStandalone(Boolean(isStandaloneMode));
+      setIsInstalled(Boolean(isStandaloneMode));
     };
 
     checkStandalone();
@@ -126,13 +130,13 @@ export const PWAProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       // Handle messages from service worker
-      navigator.serviceWorker.addEventListener('message', (event) => {
+      navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
         console.log('PWA: Message from service worker', event.data);
-        
-        if (event.data.type === 'SYNC_STATUS') {
-          setSyncStatus(event.data.status);
-        } else if (event.data.type === 'PENDING_ACTIONS') {
-          setPendingActions(event.data.count);
+        const payload = event.data as { type?: string; status?: 'idle' | 'syncing' | 'completed' | 'failed'; count?: number };
+        if (payload.type === 'SYNC_STATUS' && payload.status) {
+          setSyncStatus(payload.status);
+        } else if (payload.type === 'PENDING_ACTIONS' && typeof payload.count === 'number') {
+          setPendingActions(payload.count);
         }
       });
 
@@ -145,13 +149,14 @@ export const PWAProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!deferredPrompt) return;
 
     try {
-      const result = await (deferredPrompt as any).prompt();
+      const promptable = deferredPrompt as unknown as { prompt?: () => Promise<{ outcome?: string }> };
+      const result = await promptable.prompt?.();
       console.log('PWA: Install prompt result', result);
-      
-      if (result.outcome === 'accepted') {
+
+      if (result?.outcome === 'accepted') {
         setIsInstalled(true);
       }
-      
+
       setIsInstallable(false);
       setDeferredPrompt(null);
     } catch (error) {
@@ -175,11 +180,11 @@ export const PWAProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       navigator.serviceWorker.ready.then((registration) => {
         setSyncStatus('syncing');
         
-        const syncRegistration = registration as any;
+        const syncRegistration = registration as ServiceWorkerRegistration & { sync?: { register: (tag: string) => Promise<void> } };
         return Promise.all([
-          syncRegistration.sync.register('workflow-save'),
-          syncRegistration.sync.register('task-update'),
-          syncRegistration.sync.register('agent-status')
+          syncRegistration.sync?.register('workflow-save'),
+          syncRegistration.sync?.register('task-update'),
+          syncRegistration.sync?.register('agent-status')
         ]);
       }).then(() => {
         console.log('PWA: Background sync triggered');
@@ -251,6 +256,11 @@ export const PWAProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateApp,
     syncStatus,
     pendingActions
+    ,
+    cacheWorkflow,
+    cacheTask,
+    requestPersistentStorage,
+    getStorageEstimate
   };
 
   return (

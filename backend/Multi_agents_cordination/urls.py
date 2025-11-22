@@ -1,7 +1,12 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from . import views
+
+router = DefaultRouter()
+router.register(r'sessions', views.CoordinationSessionViewSet, basename='coordination-session')
 
 app_name = 'multi_agents_coordination'
 
 urlpatterns = [
-    # Multi-agent coordination URLs will be added here
+    path('api/', include(router.urls)),
 ]

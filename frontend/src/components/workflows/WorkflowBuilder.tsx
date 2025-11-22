@@ -118,6 +118,17 @@ interface WorkflowMetrics {
   lastOptimized?: string
 }
 
+interface TemplateShort {
+  id: string
+  name?: string
+  description?: string
+}
+
+interface ScheduleConfig {
+  next_run?: string
+  frequency?: string
+}
+
 const stepTypes = [
   { value: 'agent_task', label: 'Agent Task', icon: '🤖', color: '#3b82f6', category: 'agents' },
   { value: 'multi_agent', label: 'Multi-Agent', icon: '👥', color: '#7c3aed', category: 'agents' },
@@ -186,11 +197,11 @@ const WorkflowBuilder: React.FC = () => {
   const [showVersionControl, setShowVersionControl] = useState(false)
   const [showAIAssistant, setShowAIAssistant] = useState(false)
   const [activeTab, setActiveTab] = useState('builder')
-  const [workflowTemplates, setWorkflowTemplates] = useState<unknown[]>([])
+  const [workflowTemplates, setWorkflowTemplates] = useState<TemplateShort[]>([])
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false)
   const [showScheduler, setShowScheduler] = useState(false)
   const [isScheduled, setIsScheduled] = useState(false)
-  const [scheduleConfig, setScheduleConfig] = useState<unknown>({})
+  const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>({})
 
   const { toast } = useToast()
 
@@ -1234,7 +1245,7 @@ const WorkflowBuilder: React.FC = () => {
                 </div>
               ) : (
                 <div className="grid gap-3">
-                  {workflowTemplates.map((template: any) => (
+                  {workflowTemplates.map((template: TemplateShort) => (
                     <Card key={template.id} className="p-3 hover:shadow-sm cursor-pointer">
                       <div className="flex justify-between items-start">
                         <div>
@@ -1574,13 +1585,13 @@ const WorkflowBuilder: React.FC = () => {
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Next Run:</span>
                       <span className="text-sm text-muted-foreground">
-                        {(scheduleConfig as any)?.next_run || 'Not set'}
+                        {scheduleConfig.next_run || 'Not set'}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Frequency:</span>
                       <span className="text-sm text-muted-foreground">
-                        {(scheduleConfig as any)?.frequency || 'One-time'}
+                        {scheduleConfig.frequency || 'One-time'}
                       </span>
                     </div>
                   </div>

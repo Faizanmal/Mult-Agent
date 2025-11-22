@@ -311,22 +311,31 @@ class AgentCoordinator:
         }
     
     def _execute_reasoning_task(self, task: Task) -> Dict[str, Any]:
-        """Execute reasoning-specific task"""
+        """Execute reasoning-specific task with memory integration"""
         input_data = task.input_data
+        
+        # Retrieve relevant memories
+        agent = task.assigned_agent
+        relevant_memories = self._get_relevant_memories(agent, input_data.get('content', ''))
         
         response = self.groq_service.generate_agent_response(
             'reasoning',
             {
                 'session_context': self.session.context,
-                'task_context': input_data
+                'task_context': input_data,
+                'relevant_memories': relevant_memories
             },
             input_data.get('content', '')
         )
         
+        # Store new insights in memory
+        self._store_reasoning_memory(agent, response)
+        
         return {
             'reasoning_response': response,
             'agent_type': 'reasoning',
-            'reasoning_steps': self._extract_reasoning_steps(response)
+            'reasoning_steps': self._extract_reasoning_steps(response),
+            'memories_used': len(relevant_memories)
         }
     
     def _execute_action_task(self, task: Task) -> Dict[str, Any]:
@@ -421,12 +430,104 @@ class AgentCoordinator:
     
     def _handle_memory_operations(self, task: Task) -> Dict[str, Any]:
         """Handle memory storage and retrieval operations"""
-        # Placeholder for memory operations
+        from ..models import AgentMemory
+        
+        agent = task.assigned_agent
+        input_data = task.input_data
+        operation = input_data.get('operation', 'retrieve')
+        
+        stored_items = []
+        retrieved_items = []
+        memory_updates = []
+        
+        if operation == 'store':
+            # Store new memory
+            memory_data = input_data.get('memory_data', {})
+            for key, value in memory_data.items():
+                memory, created = AgentMemory.objects.update_or_create(
+                    agent=agent,
+                    session=self.session,
+                    key=key,
+                    defaults={
+                        'value': value,
+                        'importance_score': input_data.get('importance', 1.0)
+                    }
+                )
+                stored_items.append({
+                    'key': key,
+                    'created': created,
+                    'id': str(memory.id)
+                })
+        
+        elif operation == 'retrieve':
+            # Retrieve memories
+            query = input_data.get('query', '')
+            memories = self._get_relevant_memories(agent, query)
+            retrieved_items = [
+                {
+                    'key': mem.key,
+                    'value': mem.value,
+                    'importance': mem.importance_score,
+                    'last_accessed': mem.accessed_at.isoformat()
+                }
+                for mem in memories
+            ]
+        
+        elif operation == 'update':
+            # Update memory importance scores
+            key = input_data.get('key')
+            new_importance = input_data.get('importance')
+            if key and new_importance is not None:
+                AgentMemory.objects.filter(
+                    agent=agent,
+                    session=self.session,
+                    key=key
+                ).update(importance_score=new_importance)
+                memory_updates.append({'key': key, 'new_importance': new_importance})
+        
         return {
-            'stored_items': [],
-            'retrieved_items': [],
-            'memory_updates': []
+            'stored_items': stored_items,
+            'retrieved_items': retrieved_items,
+            'memory_updates': memory_updates
         }
+    
+    def _get_relevant_memories(self, agent: Agent, query: str, limit: int = 5):
+        """Retrieve relevant memories for an agent based on query"""
+        from ..models import AgentMemory
+        
+        # Get recent high-importance memories
+        memories = AgentMemory.objects.filter(
+            agent=agent,
+            session=self.session
+        ).order_by('-importance_score', '-accessed_at')[:limit]
+        
+        # Update access time
+        for memory in memories:
+            memory.accessed_at = datetime.now()
+            memory.save(update_fields=['accessed_at'])
+        
+        return memories
+    
+    def _store_reasoning_memory(self, agent: Agent, response: Dict[str, Any]):
+        """Store reasoning insights as memory"""
+        from ..models import AgentMemory
+        
+        content = response.get('content', '')
+        
+        # Extract key insights (simplified - could use NLP)
+        if len(content) > 50:
+            memory_key = f"reasoning_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            AgentMemory.objects.create(
+                agent=agent,
+                session=self.session,
+                key=memory_key,
+                value={
+                    'content': content[:500],  # Store first 500 chars
+                    'timestamp': datetime.now().isoformat(),
+                    'type': 'reasoning'
+                },
+                importance_score=0.8
+            )
     
     def _process_text_message(self, message: Message) -> Dict[str, Any]:
         """Process text-only message"""

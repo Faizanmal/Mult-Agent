@@ -88,6 +88,7 @@ const PluginMarketplace: React.FC = () => {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadPlugins();
   }, []);
@@ -135,6 +136,7 @@ const PluginMarketplace: React.FC = () => {
     setFilteredPlugins(result);
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     filterAndSortPlugins();
   }, [plugins, searchTerm, typeFilter, sortOption]);

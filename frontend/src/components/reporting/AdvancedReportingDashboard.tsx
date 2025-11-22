@@ -6,8 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DatePickerWithRange } from '@/components/ui/date-picker';
 import { 
@@ -64,7 +62,7 @@ interface ChartData {
   id: string;
   name: string;
   type: 'line' | 'bar' | 'area' | 'pie' | 'donut';
-  data: Array<Record<string, any>>;
+  data: Array<Record<string, unknown>>;
   config: {
     xAxis?: string;
     yAxis?: string | string[];
@@ -96,7 +94,7 @@ interface CustomReport {
   name: string;
   description: string;
   template_id?: string;
-  filters: Record<string, any>;
+  filters: Record<string, unknown>;
   date_range: {
     start: string;
     end: string;
@@ -122,7 +120,6 @@ export const AdvancedReportingDashboard: React.FC = () => {
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [reports, setReports] = useState<CustomReport[]>([]);
   const [activeTab, setActiveTab] = useState('overview');
-  const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplate | null>(null);
   const [selectedReport, setSelectedReport] = useState<CustomReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [dateRange, setDateRange] = useState({
@@ -135,6 +132,7 @@ export const AdvancedReportingDashboard: React.FC = () => {
     status: 'all'
   });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadDashboardData();
   }, [dateRange, filters]);

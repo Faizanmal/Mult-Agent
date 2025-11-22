@@ -62,7 +62,7 @@ interface Notification {
     action: string;
     style: 'primary' | 'secondary' | 'destructive';
   }>;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
   created_at: string;
   read_at?: string;
   expires_at?: string;
@@ -166,12 +166,12 @@ interface NotificationRule {
     conditions: Array<{
       field: string;
       operator: string;
-      value: any;
+      value: unknown;
     }>;
   };
   actions: Array<{
     type: 'notification' | 'email' | 'webhook' | 'sms';
-    config: Record<string, any>;
+    config: Record<string, unknown>;
   }>;
   recipients: Array<{
     type: 'user' | 'role' | 'email';
@@ -755,7 +755,7 @@ export const NotificationCenter: React.FC = () => {
                       <div className="mt-2">
                         {rule.trigger.conditions.map((condition, index) => (
                           <div key={index} className="text-xs text-gray-500">
-                            {condition.field} {condition.operator} {condition.value}
+                            {condition.field} {condition.operator} {String(condition.value)}
                           </div>
                         ))}
                       </div>

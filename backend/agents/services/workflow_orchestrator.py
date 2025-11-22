@@ -21,6 +21,7 @@ from asgiref.sync import sync_to_async
 from ..models import Agent, Task, TaskStatus, TaskPriority, Session
 from .workflow_templates import WorkflowTemplates, get_template
 from .groq_service import GroqService
+from .multimodal_processor import MultiModalProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +89,10 @@ class WorkflowOrchestrator:
     
     def __init__(self):
         self.groq_service = GroqService()
+        self.multimodal_processor = MultiModalProcessor()
         self.active_workflows: Dict[str, WorkflowExecution] = {}
         self.step_executors = self._register_step_executors()
+        self.cross_modal_context = {}  # Store cross-modal insights
     
     async def execute_workflow(
         self,
@@ -669,3 +672,115 @@ class WorkflowOrchestrator:
                 for step_id, step in execution.steps.items()
             }
         }
+    
+    async def execute_multimodal_workflow(
+        self,
+        workflow_id: str,
+        multimodal_input: Dict[str, Any],
+        user_id: str,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute workflow with multimodal input processing.
+        Processes different modalities and passes insights to agents.
+        """
+        try:
+            # Process multimodal input first
+            logger.info(f"Processing multimodal input for workflow {workflow_id}")
+            
+            multimodal_results = await self.multimodal_processor.process_multimodal_input(
+                input_data=multimodal_input,
+                processing_options={'analyze_sentiment': True, 'detect_objects': True, 'extract_text': True}
+            )
+            
+            # Store cross-modal context
+            execution_id = f"{workflow_id}_{int(datetime.now().timestamp())}"
+            self.cross_modal_context[execution_id] = {
+                'modalities': multimodal_results.get('input_types', []),
+                'results': multimodal_results.get('results', {}),
+                'processing_time': multimodal_results.get('processing_time', 0)
+            }
+            
+            # Enhance input data with multimodal insights
+            enhanced_input = {
+                'original_input': multimodal_input,
+                'multimodal_analysis': multimodal_results,
+                'modalities_detected': multimodal_results.get('input_types', []),
+            }
+            
+            # Execute workflow with enhanced input
+            result = await self.execute_workflow(
+                workflow_id=workflow_id,
+                input_data=enhanced_input,
+                user_id=user_id,
+                session_id=session_id
+            )
+            
+            # Add multimodal context to results
+            result['multimodal_context'] = self.cross_modal_context.get(execution_id, {})
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in multimodal workflow execution: {e}", exc_info=True)
+            raise
+    
+    def _pass_cross_modal_context(
+        self,
+        step: WorkflowStep,
+        execution: WorkflowExecution
+    ) -> Dict[str, Any]:
+        """
+        Pass cross-modal context to workflow steps.
+        Enables agents to access insights from different modalities.
+        """
+        execution_id = f"{execution.workflow_id}_{int(execution.start_time.timestamp())}"
+        cross_modal_data = self.cross_modal_context.get(execution_id, {})
+        
+        context = {}
+        
+        # Add relevant modal insights based on agent type
+        if step.agent_type == 'vision' and 'image' in cross_modal_data.get('results', {}):
+            context['vision_context'] = cross_modal_data['results']['image']
+        
+        elif step.agent_type == 'reasoning':
+            # Reasoning agent gets all modal insights
+            context['cross_modal_insights'] = cross_modal_data.get('results', {})
+            context['modalities'] = cross_modal_data.get('modalities', [])
+        
+        elif step.agent_type == 'action':
+            # Action agent gets specific actionable insights
+            context['actionable_insights'] = self._extract_actionable_insights(cross_modal_data)
+        
+        return context
+    
+    def _extract_actionable_insights(self, cross_modal_data: Dict[str, Any]) -> List[str]:
+        """Extract actionable insights from cross-modal analysis"""
+        insights = []
+        
+        results = cross_modal_data.get('results', {})
+        
+        # Extract from text analysis
+        if 'text' in results:
+            text_result = results['text']
+            if 'analysis' in text_result and 'sentiment' in text_result['analysis']:
+                sentiment = text_result['analysis']['sentiment']
+                insights.append(f"Text sentiment: {sentiment.get('label', 'unknown')}")
+        
+        # Extract from image analysis
+        if 'image' in results:
+            image_result = results['image']
+            if 'analysis' in image_result:
+                if 'caption' in image_result['analysis']:
+                    insights.append(f"Image content: {image_result['analysis']['caption']}")
+                if 'objects' in image_result['analysis']:
+                    objects = [obj['label'] for obj in image_result['analysis']['objects'][:3]]
+                    insights.append(f"Detected objects: {', '.join(objects)}")
+        
+        # Extract from audio analysis
+        if 'audio' in results:
+            audio_result = results['audio']
+            if 'analysis' in audio_result and 'transcription' in audio_result['analysis']:
+                insights.append(f"Audio transcription available")
+        
+        return insights

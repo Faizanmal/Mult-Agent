@@ -33,7 +33,7 @@ interface AutomationRule {
   name: string
   type: 'schedule' | 'trigger' | 'condition' | 'optimization'
   enabled: boolean
-  config: Record<string, any>
+  config: Record<string, unknown>
   lastRun?: string
   nextRun?: string
   success: boolean
@@ -160,7 +160,7 @@ const WorkflowAutomationManager: React.FC<WorkflowAutomationManagerProps> = ({
     const newRule: AutomationRule = {
       id: `custom-${Date.now()}`,
       name: newRuleName,
-      type: newRuleType as any,
+      type: newRuleType as 'schedule' | 'trigger' | 'condition' | 'optimization',
       enabled: true,
       config: {},
       success: false,
@@ -489,7 +489,7 @@ const WorkflowAutomationManager: React.FC<WorkflowAutomationManagerProps> = ({
                         Potential Issue Detected
                       </h4>
                       <p className="text-sm text-yellow-700 dark:text-yellow-200 mt-1">
-                        Node "Data Processing" shows 12% failure rate. Consider adding retry logic 
+                        Node &quot;Data Processing&quot; shows 12% failure rate. Consider adding retry logic 
                         or reviewing input validation rules.
                       </p>
                       <Button size="sm" className="mt-2" variant="outline">

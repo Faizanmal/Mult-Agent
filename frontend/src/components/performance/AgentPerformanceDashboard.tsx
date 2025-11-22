@@ -137,7 +137,6 @@ const performanceData: AgentPerformanceData[] = [
 
 export default function AgentPerformanceDashboard() {
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('7d');
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   // Prepare data for charts
   const performanceMetrics = performanceData.map(agent => ({

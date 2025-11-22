@@ -248,6 +248,75 @@ export interface PaginatedResponse<T> {
   results: T[];
 }
 
+// Multi-Agent Coordination interfaces
+export interface CoordinationSession {
+  id: string;
+  name: string;
+  strategy: 'sequential' | 'parallel' | 'hierarchical' | 'collaborative';
+  is_active: boolean;
+  created_at: string;
+  interaction_count: number;
+  metrics_count: number;
+}
+
+export interface AgentInteraction {
+  id: string;
+  source_agent_id: string;
+  target_agent_id: string;
+  interaction_type: string;
+  content: Record<string, unknown>;
+  created_at: string;
+  processed: boolean;
+}
+
+export interface CoordinationResult {
+  strategy: string;
+  results: Array<{
+    agent_id: string;
+    agent_name: string;
+    agent_type: string;
+    output: string;
+    timestamp: string;
+  }>;
+  status: string;
+}
+
+// Multi-Modal Intelligence interfaces
+export interface AIModelConfig {
+  id: string;
+  name: string;
+  model_type: 'text' | 'vision' | 'audio' | 'video' | 'multimodal';
+  provider: string;
+  model_id: string;
+  capabilities: string[];
+  is_active: boolean;
+  is_default: boolean;
+}
+
+export interface MultiModalSession {
+  id: string;
+  name: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  input_modalities: string[];
+  created_at: string;
+  completed_at?: string;
+  modality_count: number;
+  insights_count: number;
+}
+
+export interface MultiModalResult {
+  session_id: string;
+  results: Record<string, unknown>;
+  input_modalities: string[];
+  status: string;
+  cross_modal_insights?: Array<{
+    type: string;
+    modalities: string[];
+    description: string;
+    confidence: number;
+  }>;
+}
+
 // Plugin interfaces
 export interface Plugin {
   id: string;
@@ -1159,6 +1228,101 @@ class ApiClient {
     const response: AxiosResponse<PluginInstallation> = await this.client.post(`/agents/api/plugin-installations/${installationId}/configure/`, { configuration });
     return response.data;
   }
+
+  // Multi-Agent Coordination APIs
+  public async getCoordinationSessions(): Promise<{ sessions: CoordinationSession[]; count: number }> {
+    const response = await this.client.get('/coordination/api/sessions/');
+    return response.data;
+  }
+
+  public async createCoordinationSession(name: string, strategy: 'sequential' | 'parallel' | 'hierarchical' | 'collaborative' = 'sequential', config: Record<string, unknown> = {}): Promise<CoordinationSession> {
+    const response = await this.client.post('/coordination/api/sessions/', {
+      name,
+      strategy,
+      config
+    });
+    return response.data;
+  }
+
+  public async coordinateAgents(sessionId: string, agentIds: string[], task: string, strategy?: string): Promise<CoordinationResult> {
+    const response = await this.client.post(`/coordination/api/sessions/${sessionId}/coordinate_agents/`, {
+      agent_ids: agentIds,
+      task,
+      strategy
+    });
+    return response.data;
+  }
+
+  public async getCoordinationInteractions(sessionId: string): Promise<{ interactions: AgentInteraction[]; count: number }> {
+    const response = await this.client.get(`/coordination/api/sessions/${sessionId}/interactions/`);
+    return response.data;
+  }
+
+  public async getCoordinationMetrics(sessionId: string): Promise<{ metrics: Array<Record<string, unknown>>; summary: Record<string, unknown>; count: number }> {
+    const response = await this.client.get(`/coordination/api/sessions/${sessionId}/metrics/`);
+    return response.data;
+  }
+
+  // Multi-Modal Intelligence APIs
+  public async getAIModels(modelType?: string, isActive?: boolean): Promise<{ models: AIModelConfig[]; count: number }> {
+    const params: Record<string, string> = {};
+    if (modelType) params.model_type = modelType;
+    if (isActive !== undefined) params.is_active = isActive.toString();
+    
+    const response = await this.client.get('/intelligence/api/models/', { params });
+    return response.data;
+  }
+
+  public async createAIModel(modelData: {
+    name: string;
+    model_type: string;
+    provider: string;
+    model_id: string;
+    capabilities?: string[];
+    config?: Record<string, unknown>;
+  }): Promise<AIModelConfig> {
+    const response = await this.client.post('/intelligence/api/models/', modelData);
+    return response.data;
+  }
+
+  public async processMultiModalIntelligence(formData: FormData): Promise<MultiModalResult> {
+    const response = await this.client.post('/intelligence/api/intelligence/process_multimodal/', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  public async crossModalAnalysis(modalityResults: Record<string, unknown>): Promise<{
+    insights: Array<{ modalities: string[]; correlation_type: string; confidence: number; description: string }>;
+    analyzed_modalities: string[];
+    insight_count: number;
+  }> {
+    const response = await this.client.post('/intelligence/api/intelligence/cross_modal_analysis/', {
+      modality_results: modalityResults
+    });
+    return response.data;
+  }
+
+  public async getMultiModalSessions(): Promise<{ sessions: MultiModalSession[]; count: number }> {
+    const response = await this.client.get('/intelligence/api/intelligence/sessions/');
+    return response.data;
+  }
+
+  public async getMultiModalSessionDetail(sessionId: string): Promise<{
+    id: string;
+    name: string;
+    status: string;
+    input_modalities: string[];
+    results: Record<string, unknown>;
+    modality_results: Array<Record<string, unknown>>;
+    cross_modal_insights: Array<Record<string, unknown>>;
+    created_at: string;
+  }> {
+    const response = await this.client.get(`/intelligence/api/intelligence/${sessionId}/session_detail/`);
+    return response.data;
+  }
 }
 
 // Export singleton instance
@@ -1306,4 +1470,17 @@ export const {
   // Notification methods
   getNotifications,
   markNotificationAsRead,
+  // Multi-Agent Coordination methods
+  getCoordinationSessions,
+  createCoordinationSession,
+  coordinateAgents,
+  getCoordinationInteractions,
+  getCoordinationMetrics,
+  // Multi-Modal Intelligence methods
+  getAIModels,
+  createAIModel,
+  processMultiModalIntelligence,
+  crossModalAnalysis,
+  getMultiModalSessions,
+  getMultiModalSessionDetail,
 } = apiClient;

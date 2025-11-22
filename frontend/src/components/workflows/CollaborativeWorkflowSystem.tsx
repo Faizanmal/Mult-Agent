@@ -224,7 +224,7 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
       id: `member_${Date.now()}`,
       name: newMemberEmail.split('@')[0],
       email: newMemberEmail,
-      role: selectedRole as any,
+      role: selectedRole as TeamMember['role'],
       status: 'offline',
       lastActive: 'Never',
       permissions: selectedRole === 'owner' ? ['read', 'write', 'delete', 'share'] :
@@ -257,7 +257,7 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
         member.id === memberId 
           ? { 
               ...member, 
-              role: newRole as any,
+              role: newRole as TeamMember['role'],
               permissions: newRole === 'owner' ? ['read', 'write', 'delete', 'share'] :
                           newRole === 'editor' ? ['read', 'write', 'comment'] :
                           ['read', 'comment']

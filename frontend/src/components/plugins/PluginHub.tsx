@@ -81,7 +81,7 @@ const PluginHub: React.FC = () => {
   const [activeTab, setActiveTab] = useState('installed');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [selectedPlugin, setSelectedPlugin] = useState<PluginType | null>(null);
+  // selectedPlugin intentionally removed (unused)
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newPlugin, setNewPlugin] = useState({
     name: '',
@@ -105,7 +105,7 @@ const PluginHub: React.FC = () => {
   const { mutate: installPlugin } = useInstallPlugin();
   const { mutate: uninstallPlugin } = useUninstallPlugin();
   const { mutate: togglePluginStatus } = useTogglePluginStatus();
-  const { mutate: createPlugin } = useCreatePlugin();
+  // createPlugin removed: not used in this component
 
   const isLoading = isLoadingPlugins || isLoadingInstalled || isLoadingPublic;
 
@@ -537,7 +537,7 @@ const PluginHub: React.FC = () => {
                   <Label htmlFor="type">Plugin Type</Label>
                   <Select
                     value={newPlugin.type}
-                    onValueChange={(value) => setNewPlugin({ ...newPlugin, type: value as any })}
+                    onValueChange={(value) => setNewPlugin({ ...newPlugin, type: value as PluginType['type'] })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select type" />
