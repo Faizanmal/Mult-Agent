@@ -1,0 +1,231 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+  labels:
+    app: multi-agent-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: multi-agent-backend
+  template:
+    metadata:
+      labels:
+        app: multi-agent-backend
+    spec:
+      containers:
+      - name: backend
+        image: multi-agent-backend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DEBUG
+          value: "False"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: redis-url
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: groq-api-key
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: openai-api-key
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: anthropic-api-key
+        - name: AZURE_COSMOSDB_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: azure-cosmosdb-endpoint
+              optional: true
+        - name: AZURE_COSMOSDB_KEY
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: azure-cosmosdb-key
+              optional: true
+        - name: AZURE_FUNCTIONS_URL
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: azure-functions-url
+              optional: true
+        - name: TWILIO_ACCOUNT_SID
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: twilio-account-sid
+              optional: true
+        - name: TWILIO_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: twilio-auth-token
+              optional: true
+        - name: FIREBASE_SERVER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: multi-agent-secrets
+              key: firebase-server-key
+              optional: true
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health/
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: multi-agent-backend
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  labels:
+    app: multi-agent-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: multi-agent-frontend
+  template:
+    metadata:
+      labels:
+        app: multi-agent-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: multi-agent-frontend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NEXT_PUBLIC_API_URL
+          value: "http://backend-service:8000"
+        - name: NEXT_PUBLIC_WS_URL
+          value: "ws://backend-service:8000"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: multi-agent-frontend
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-deployment
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        command:
+          - redis-server
+          - --appendonly
+          - "yes"
+        volumeMounts:
+        - name: redis-storage
+          mountPath: /data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: redis-storage
+        persistentVolumeClaim:
+          claimName: redis-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+spec:
+  selector:
+    app: redis
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

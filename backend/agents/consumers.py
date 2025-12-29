@@ -13,8 +13,47 @@ User = get_user_model()
 
 logger = logging.getLogger(__name__)
 
+
+class AgentPresenceTracker:
+    """Track online agents and their status"""
+    
+    def __init__(self):
+        self.online_agents = {}  # {agent_id: {'channel_name': ..., 'status': ..., 'last_seen': ...}}
+    
+    def agent_online(self, agent_id, channel_name):
+        """Mark agent as online"""
+        self.online_agents[agent_id] = {
+            'channel_name': channel_name,
+            'status': 'available',
+            'last_seen': datetime.now().isoformat()
+        }
+    
+    def agent_offline(self, agent_id):
+        """Mark agent as offline"""
+        if agent_id in self.online_agents:
+            del self.online_agents[agent_id]
+    
+    def update_status(self, agent_id, status):
+        """Update agent status"""
+        if agent_id in self.online_agents:
+            self.online_agents[agent_id]['status'] = status
+            self.online_agents[agent_id]['last_seen'] = datetime.now().isoformat()
+    
+    def get_online_agents(self):
+        """Get list of online agents"""
+        return list(self.online_agents.keys())
+    
+    def is_online(self, agent_id):
+        """Check if agent is online"""
+        return agent_id in self.online_agents
+
+
+# Global presence tracker
+presence_tracker = AgentPresenceTracker()
+
+
 class SessionConsumer(AsyncWebsocketConsumer):
-    """WebSocket consumer for session-based communication"""
+    """WebSocket consumer for session-based communication with real-time coordination"""
     
     async def connect(self):
         self.session_id = self.scope['url_route']['kwargs']['session_id']

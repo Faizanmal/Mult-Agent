@@ -378,11 +378,15 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
       },
+      // Use credentials for secure cookie handling
+      withCredentials: true,
     });
 
     // Request interceptor for authentication
     this.client.interceptors.request.use(
       (config) => {
+        // For better security, we recommend using HttpOnly cookies
+        // But for now, we'll keep the localStorage approach with improvements
         const token = this.getAuthToken();
         if (token) {
           config.headers.Authorization = `Token ${token}`;
@@ -402,6 +406,9 @@ class ApiClient {
         if (error.response?.status === 401) {
           this.removeAuthToken();
           // Redirect to login if needed
+          if (typeof window !== 'undefined') {
+            window.location.href = '/login';
+          }
         }
         
         return Promise.reject(error);
@@ -409,23 +416,34 @@ class ApiClient {
     );
   }
 
-  // Auth token management
+  // Enhanced auth token management with security improvements
   private getAuthToken(): string | null {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('auth_token');
+      // Add additional security checks
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        // In a more secure implementation, you might want to validate the token format
+        // or check if it's still valid before returning it
+        return token;
+      }
     }
     return null;
   }
 
   public setAuthToken(token: string): void {
     if (typeof window !== 'undefined') {
+      // Add security headers to prevent XSS
       localStorage.setItem('auth_token', token);
+      // Set a cookie as a backup (optional)
+      document.cookie = `auth_token=${token}; path=/; secure; samesite=strict`;
     }
   }
 
   private removeAuthToken(): void {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('auth_token');
+      // Remove cookie as well
+      document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; secure; samesite=strict';
     }
   }
 

@@ -95,8 +95,11 @@ class VisualWorkflowViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
     
     @action(detail=True, methods=['post'])
-    def execute(self, request, pk=None):
+    async def execute(self, request, pk=None):
         """Execute a workflow"""
+        from agents.services.workflow_engine import WorkflowEngine
+        import asyncio
+        
         workflow = self.get_object()
         input_data = request.data.get('input_data', {})
         
@@ -112,10 +115,90 @@ class VisualWorkflowViewSet(viewsets.ModelViewSet):
         workflow.last_executed = timezone.now()
         workflow.save()
         
-        # TODO: Integrate with actual workflow execution engine
-        # For now, return execution record
-        serializer = WorkflowExecutionSerializer(execution)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        try:
+            # Execute workflow using the workflow engine
+            execution.status = 'running'
+            execution.started_at = timezone.now()
+            execution.save()
+            
+            engine = WorkflowEngine()
+            
+            # Build workflow definition from visual workflow
+            workflow_definition = {
+                'id': str(workflow.id),
+                'name': workflow.name,
+                'steps': self._convert_nodes_to_steps(workflow.nodes, workflow.edges),
+                'variables': workflow.variables,
+                'settings': workflow.settings
+            }
+            
+            # Execute the workflow
+            result = await engine.execute_workflow(
+                workflow_definition=workflow_definition,
+                input_data=input_data,
+                user_id=str(request.user.id),
+                session_id=None
+            )
+            
+            # Update execution record with results
+            execution.status = 'completed' if result['success'] else 'failed'
+            execution.completed_at = timezone.now()
+            execution.output_data = result.get('results', {})
+            execution.error_message = result.get('error', '')
+            execution.save()
+            
+            serializer = WorkflowExecutionSerializer(execution)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            execution.status = 'failed'
+            execution.completed_at = timezone.now()
+            execution.error_message = str(e)
+            execution.save()
+            
+            return Response(
+                {'error': f'Workflow execution failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _convert_nodes_to_steps(self, nodes, edges):
+        """Convert visual workflow nodes and edges to workflow steps"""
+        steps = []
+        
+        # Create dependency map from edges
+        dependency_map = {}
+        for edge in edges:
+            target = edge.get('target')
+            source = edge.get('source')
+            if target not in dependency_map:
+                dependency_map[target] = []
+            dependency_map[target].append(source)
+        
+        # Convert nodes to steps
+        for node in nodes:
+            step = {
+                'id': node.get('id'),
+                'type': self._map_node_type_to_step_type(node.get('type', 'agent')),
+                'config': node.get('data', {}),
+                'dependencies': dependency_map.get(node.get('id'), [])
+            }
+            steps.append(step)
+        
+        return steps
+    
+    def _map_node_type_to_step_type(self, node_type):
+        """Map visual node types to workflow engine step types"""
+        mapping = {
+            'agent': 'agent_task',
+            'condition': 'conditional',
+            'action': 'agent_task',
+            'trigger': 'agent_task',
+            'transform': 'data_transform',
+            'integration': 'api_call',
+            'delay': 'delay',
+            'loop': 'parallel'
+        }
+        return mapping.get(node_type, 'agent_task')
     
     @action(detail=True, methods=['post'])
     @transaction.atomic

@@ -4,6 +4,8 @@ Service classes for webhook delivery and notification sending
 import requests
 import logging
 from django.utils import timezone
+from django.core.mail import send_mail, EmailMultiAlternatives
+from django.conf import settings
 from .models import WebhookDelivery
 
 logger = logging.getLogger(__name__)
@@ -140,6 +142,10 @@ class NotificationService:
                 result = self._send_discord(channel, title, message)
             elif channel.channel_type == 'telegram':
                 result = self._send_telegram(channel, title, message)
+            elif channel.channel_type == 'sms':
+                result = self._send_sms(channel, title, message)
+            elif channel.channel_type == 'push':
+                result = self._send_push(channel, title, message)
             else:
                 result = {'success': False, 'error': 'Unsupported channel type'}
             
@@ -157,9 +163,50 @@ class NotificationService:
     
     def _send_email(self, channel, title, message):
         """Send email notification"""
-        # TODO: Implement email sending
-        logger.info(f"Email notification: {title}")
-        return {'success': True, 'channel': 'email'}
+        try:
+            email_config = channel.channel_config
+            recipients = email_config.get('recipients', [])
+            
+            if not recipients:
+                return {'success': False, 'error': 'No recipients configured'}
+            
+            # Convert single string to list
+            if isinstance(recipients, str):
+                recipients = [r.strip() for r in recipients.split(',')]
+            
+            # Get email settings from channel config or use Django defaults
+            from_email = email_config.get('from_email', settings.DEFAULT_FROM_EMAIL)
+            
+            # Create email message
+            if email_config.get('html', False):
+                # HTML email
+                email = EmailMultiAlternatives(
+                    subject=title,
+                    body=message,
+                    from_email=from_email,
+                    to=recipients
+                )
+                email.attach_alternative(message, "text/html")
+            else:
+                # Plain text email
+                send_mail(
+                    subject=title,
+                    message=message,
+                    from_email=from_email,
+                    recipient_list=recipients,
+                    fail_silently=False
+                )
+                return {'success': True, 'channel': 'email', 'recipients': len(recipients)}
+            
+            # Send HTML email
+            email.send(fail_silently=False)
+            
+            logger.info(f"Email notification sent to {len(recipients)} recipients: {title}")
+            return {'success': True, 'channel': 'email', 'recipients': len(recipients)}
+            
+        except Exception as e:
+            logger.error(f"Email notification failed: {str(e)}")
+            return {'success': False, 'error': str(e)}
     
     def _send_slack(self, channel, title, message):
         """Send Slack notification"""
@@ -203,6 +250,185 @@ class NotificationService:
     
     def _send_telegram(self, channel, title, message):
         """Send Telegram notification"""
-        # TODO: Implement Telegram Bot API
-        logger.info(f"Telegram notification: {title}")
-        return {'success': True, 'channel': 'telegram'}
+        try:
+            telegram_config = channel.channel_config
+            bot_token = telegram_config.get('bot_token')
+            chat_id = telegram_config.get('chat_id')
+            
+            if not bot_token or not chat_id:
+                return {'success': False, 'error': 'Bot token or chat ID not configured'}
+            
+            # Format message with title
+            full_message = f"*{title}*\n\n{message}"
+            
+            # Telegram Bot API URL
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            
+            # Prepare payload
+            payload = {
+                'chat_id': chat_id,
+                'text': full_message,
+                'parse_mode': telegram_config.get('parse_mode', 'Markdown'),
+                'disable_web_page_preview': telegram_config.get('disable_preview', False),
+                'disable_notification': telegram_config.get('silent', False)
+            }
+            
+            # Add optional reply_to_message_id
+            if telegram_config.get('reply_to_message_id'):
+                payload['reply_to_message_id'] = telegram_config['reply_to_message_id']
+            
+            # Send request to Telegram API
+            response = requests.post(url, json=payload, timeout=10)
+            response_data = response.json()
+            
+            if response.status_code == 200 and response_data.get('ok'):
+                logger.info(f"Telegram notification sent: {title}")
+                return {
+                    'success': True, 
+                    'channel': 'telegram',
+                    'message_id': response_data.get('result', {}).get('message_id')
+                }
+            else:
+                error_msg = response_data.get('description', 'Unknown error')
+                logger.error(f"Telegram API error: {error_msg}")
+                return {'success': False, 'error': error_msg}
+            
+        except Exception as e:
+            logger.error(f"Telegram notification failed: {str(e)}")
+            return {'success': False, 'error': str(e)}
+    
+    def _send_sms(self, channel, title, message):
+        """Send SMS notification via Twilio"""
+        try:
+            sms_config = channel.channel_config
+            account_sid = sms_config.get('account_sid')
+            auth_token = sms_config.get('auth_token')
+            from_number = sms_config.get('from_number')
+            to_numbers = sms_config.get('to_numbers', [])
+            
+            if not all([account_sid, auth_token, from_number]):
+                return {'success': False, 'error': 'Twilio credentials not configured'}
+            
+            if not to_numbers:
+                return {'success': False, 'error': 'No recipient numbers configured'}
+            
+            # Convert single string to list
+            if isinstance(to_numbers, str):
+                to_numbers = [n.strip() for n in to_numbers.split(',')]
+            
+            # Prepare message text
+            sms_text = f"{title}\\n\\n{message}"[:160]  # SMS character limit
+            
+            # Twilio API URL
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+            
+            sent_count = 0
+            errors = []
+            
+            # Send to each number
+            for to_number in to_numbers:
+                try:
+                    payload = {
+                        'From': from_number,
+                        'To': to_number,
+                        'Body': sms_text
+                    }
+                    
+                    response = requests.post(
+                        url,
+                        data=payload,
+                        auth=(account_sid, auth_token),
+                        timeout=10
+                    )
+                    
+                    if response.status_code == 201:
+                        sent_count += 1
+                    else:
+                        errors.append(f"{to_number}: {response.json().get('message')}")
+                        
+                except Exception as e:
+                    errors.append(f"{to_number}: {str(e)}")
+            
+            if sent_count > 0:
+                logger.info(f"SMS sent to {sent_count} recipients: {title}")
+                return {
+                    'success': True,
+                    'channel': 'sms',
+                    'sent_count': sent_count,
+                    'errors': errors if errors else None
+                }
+            else:
+                return {'success': False, 'error': f"Failed to send: {errors}"}
+            
+        except Exception as e:
+            logger.error(f"SMS notification failed: {str(e)}")
+            return {'success': False, 'error': str(e)}
+    
+    def _send_push(self, channel, title, message):
+        """Send Push notification via Firebase Cloud Messaging"""
+        try:
+            push_config = channel.channel_config
+            server_key = push_config.get('server_key')
+            device_tokens = push_config.get('device_tokens', [])
+            
+            if not server_key:
+                return {'success': False, 'error': 'Firebase server key not configured'}
+            
+            if not device_tokens:
+                return {'success': False, 'error': 'No device tokens configured'}
+            
+            # Convert single string to list
+            if isinstance(device_tokens, str):
+                device_tokens = [t.strip() for t in device_tokens.split(',')]
+            
+            # FCM API URL
+            url = "https://fcm.googleapis.com/fcm/send"
+            
+            headers = {
+                'Authorization': f'key={server_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            sent_count = 0
+            errors = []
+            
+            # Send to each device
+            for token in device_tokens:
+                try:
+                    payload = {
+                        'to': token,
+                        'notification': {
+                            'title': title,
+                            'body': message,
+                            'sound': push_config.get('sound', 'default'),
+                            'badge': push_config.get('badge', 1)
+                        },
+                        'priority': push_config.get('priority', 'high'),
+                        'data': push_config.get('data', {})
+                    }
+                    
+                    response = requests.post(url, json=payload, headers=headers, timeout=10)
+                    response_data = response.json()
+                    
+                    if response_data.get('success') == 1:
+                        sent_count += 1
+                    else:
+                        errors.append(f"{token[:20]}...: {response_data.get('results', [{}])[0].get('error')}")
+                        
+                except Exception as e:
+                    errors.append(f"{token[:20]}...: {str(e)}")
+            
+            if sent_count > 0:
+                logger.info(f"Push notifications sent to {sent_count} devices: {title}")
+                return {
+                    'success': True,
+                    'channel': 'push',
+                    'sent_count': sent_count,
+                    'errors': errors if errors else None
+                }
+            else:
+                return {'success': False, 'error': f"Failed to send: {errors}"}
+            
+        except Exception as e:
+            logger.error(f"Push notification failed: {str(e)}")
+            return {'success': False, 'error': str(e)}

@@ -3,16 +3,25 @@ from .models import APIIntegration, APITemplate, APICallResult, IntegrationUsage
 
 
 class APIIntegrationSerializer(serializers.ModelSerializer):
+    # Add a write-only field for authentication data
+    authentication = serializers.JSONField(write_only=True, required=False)
+    
     class Meta:
         model = APIIntegration
         fields = [
             'id', 'name', 'description', 'type', 'category', 'endpoint',
             'method', 'headers', 'authentication', 'parameters', 'rate_limit',
-            'retry_policy', 'response_format', 'documentation', 'status',
-            'last_used', 'success_rate', 'avg_response_time', 'created_at',
-            'updated_at', 'is_active'
+            'retry_policy', 'timeout', 'status', 'last_tested', 'success_rate', 
+            'total_calls', 'avg_response_time', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'last_used', 'success_rate', 'avg_response_time']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'last_tested', 'success_rate', 'total_calls', 'avg_response_time']
+    
+    def to_representation(self, instance):
+        """Convert model instance to JSON representation"""
+        representation = super().to_representation(instance)
+        # Add decrypted authentication data to the representation
+        representation['authentication'] = instance.get_auth_data()
+        return representation
 
 
 class APITemplateSerializer(serializers.ModelSerializer):
@@ -30,8 +39,8 @@ class APICallResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = APICallResult
         fields = [
-            'id', 'integration', 'request_data', 'response_data', 'status_code',
-            'response_time', 'success', 'error_message', 'timestamp'
+            'id', 'integration', 'status', 'response_data', 'response_time',
+            'error_message', 'request_data', 'timestamp'
         ]
         read_only_fields = ['id', 'timestamp']
 
@@ -40,8 +49,8 @@ class IntegrationUsageSerializer(serializers.ModelSerializer):
     class Meta:
         model = IntegrationUsage
         fields = [
-            'id', 'integration', 'total_calls', 'successful_calls', 'failed_calls',
-            'avg_response_time', 'date'
+            'id', 'integration', 'date', 'total_calls', 'successful_calls', 
+            'failed_calls', 'avg_response_time', 'total_data_transferred'
         ]
         read_only_fields = ['id']
 
@@ -50,7 +59,8 @@ class IntegrationAlertSerializer(serializers.ModelSerializer):
     class Meta:
         model = IntegrationAlert
         fields = [
-            'id', 'integration', 'alert_type', 'message', 'threshold_value',
-            'current_value', 'is_resolved', 'created_at', 'resolved_at'
+            'id', 'integration', 'severity', 'message', 'rule_triggered',
+            'acknowledged', 'acknowledged_by', 'acknowledged_at', 'resolved', 
+            'resolved_at', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']

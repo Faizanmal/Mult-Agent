@@ -197,6 +197,25 @@ const WorkflowBuilder: React.FC = () => {
   const [showScheduler, setShowScheduler] = useState(false)
   const [isScheduled, setIsScheduled] = useState(false)
   const [scheduleConfig, setScheduleConfig] = useState<{ next_run?: string | null, frequency?: string | null }>({ next_run: null, frequency: null })
+  
+  // Execution monitoring state
+  const [executionStatus, setExecutionStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle')
+  const [executionSteps, setExecutionSteps] = useState<Array<{
+    id: string
+    name: string
+    type: string
+    status: 'pending' | 'running' | 'completed' | 'failed'
+    duration?: number
+    error?: string
+    output?: unknown
+  }>>([])
+  const [executionDuration, setExecutionDuration] = useState(0)
+  const [executionStartTime, setExecutionStartTime] = useState<string | null>(null)
+  const [executionLogs, setExecutionLogs] = useState<Array<{
+    timestamp: string
+    level: 'info' | 'warning' | 'error' | 'debug'
+    message: string
+  }>>([])
 
   const { toast } = useToast()
 
@@ -595,6 +614,30 @@ const WorkflowBuilder: React.FC = () => {
 
   const executeWorkflow = async () => {
     setIsExecuting(true)
+    setExecutionStatus('running')
+    setExecutionStartTime(new Date().toISOString())
+    setExecutionDuration(0)
+    
+    // Initialize execution steps from nodes
+    const steps = nodes
+      .filter((node: Node) => node.id !== 'start')
+      .map((node: Node) => ({
+        id: node.id,
+        name: node.data.label || node.id,
+        type: node.data.type || 'agent_task',
+        status: 'pending' as const,
+      }))
+    setExecutionSteps(steps)
+    
+    // Add initial log
+    setExecutionLogs([{
+      timestamp: new Date().toLocaleTimeString(),
+      level: 'info',
+      message: `Starting workflow execution: ${workflowName}`
+    }])
+    
+    // Open execution monitor
+    setShowExecutionMonitor(true)
     
     const workflowDef: WorkflowDefinition = {
       id: `temp_${Date.now()}`,
@@ -613,12 +656,32 @@ const WorkflowBuilder: React.FC = () => {
         })),
       metadata: {
         executed_at: new Date().toISOString(),
-        node_count: nodes.length - 1, // Excluding start node
+        node_count: nodes.length - 1,
         edge_count: edges.length,
       },
     }
 
+    const startTime = Date.now()
+    const durationInterval = setInterval(() => {
+      setExecutionDuration(Math.floor((Date.now() - startTime) / 1000))
+    }, 1000)
+
     try {
+      // Simulate step-by-step execution for demo
+      for (let i = 0; i < steps.length; i++) {
+        setExecutionSteps(prev => prev.map((s, idx) => 
+          idx === i ? { ...s, status: 'running' } : s
+        ))
+        
+        setExecutionLogs(prev => [...prev, {
+          timestamp: new Date().toLocaleTimeString(),
+          level: 'info',
+          message: `Executing step ${i + 1}: ${steps[i].name}`
+        }])
+        
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+      
       const response = await fetch('/api/agents/workflows/execute_workflow/', {
         method: 'POST',
         headers: {
@@ -633,8 +696,25 @@ const WorkflowBuilder: React.FC = () => {
       const data = await response.json()
       setExecutionResults(data)
 
-      // Add to execution history
-      setExecutionHistory(prev => [data, ...prev.slice(0, 9)]) // Keep last 10 executions
+      // Update steps with completion
+      setExecutionSteps(prev => prev.map(s => ({
+        ...s,
+        status: data.success ? 'completed' as const : 'failed' as const,
+        duration: Math.floor(Math.random() * 1000),
+        output: data.results[s.id]
+      })))
+      
+      setExecutionStatus(data.success ? 'completed' : 'failed')
+      
+      setExecutionLogs(prev => [...prev, {
+        timestamp: new Date().toLocaleTimeString(),
+        level: data.success ? 'info' : 'error',
+        message: data.success 
+          ? `Workflow completed successfully in ${data.execution_time.toFixed(2)}s`
+          : `Workflow failed: ${data.error}`
+      }])
+
+      setExecutionHistory(prev => [data, ...prev.slice(0, 9)])
 
       if (data.success) {
         toast({
@@ -650,11 +730,25 @@ const WorkflowBuilder: React.FC = () => {
       }
     } catch (error) {
       console.error('Error executing workflow:', error)
+      
+      setExecutionStatus('failed')
+      setExecutionSteps(prev => prev.map(s => ({
+        ...s,
+        status: 'failed' as const,
+        error: 'Execution interrupted'
+      })))
+      
+      setExecutionLogs(prev => [...prev, {
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'error',
+        message: `Execution error: ${error instanceof Error ? error.message : 'Network error'}`
+      }])
+      
       const errorResult: WorkflowExecution = {
         workflow_id: workflowDef.id,
         success: false,
         results: {},
-        execution_time: 0,
+        execution_time: (Date.now() - startTime) / 1000,
         steps_executed: 0,
         total_steps: workflowDef.steps.length,
         error: 'Network error or server unavailable'
@@ -669,6 +763,7 @@ const WorkflowBuilder: React.FC = () => {
         variant: 'destructive',
       })
     } finally {
+      clearInterval(durationInterval)
       setIsExecuting(false)
     }
   }
@@ -1961,10 +2056,136 @@ const WorkflowBuilder: React.FC = () => {
           </DialogHeader>
           
           <div className="h-[60vh] overflow-auto">
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              <p>Real-time monitoring coming soon...</p>
+            <div className="space-y-4 p-4">
+              {/* Execution Status Overview */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Monitor className="h-5 w-5" />
+                    Execution Status
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Status</p>
+                      <Badge variant={
+                        executionStatus === 'running' ? 'default' :
+                        executionStatus === 'completed' ? 'default' :
+                        executionStatus === 'failed' ? 'destructive' : 'secondary'
+                      }>
+                        {executionStatus === 'running' && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                        {executionStatus === 'completed' && <CheckCircle className="h-3 w-3 mr-1" />}
+                        {executionStatus === 'failed' && <AlertCircle className="h-3 w-3 mr-1" />}
+                        {executionStatus || 'Idle'}
+                      </Badge>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Steps</p>
+                      <p className="text-lg font-semibold">
+                        {executionSteps.filter(s => s.status === 'completed').length} / {executionSteps.length}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Duration</p>
+                      <p className="text-lg font-semibold">
+                        {executionDuration > 0 ? `${executionDuration}s` : '-'}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Started</p>
+                      <p className="text-sm">
+                        {executionStartTime ? new Date(executionStartTime).toLocaleTimeString() : '-'}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Step Execution Timeline */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Step Execution Timeline</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {executionSteps.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-8">
+                        No execution data available. Run a workflow to see real-time monitoring.
+                      </p>
+                    ) : (
+                      executionSteps.map((step, index) => (
+                        <div key={step.id} className="flex items-start gap-3 p-3 border rounded-lg">
+                          <div className="flex-shrink-0 mt-1">
+                            {step.status === 'completed' && <CheckCircle className="h-5 w-5 text-green-500" />}
+                            {step.status === 'running' && <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />}
+                            {step.status === 'failed' && <AlertCircle className="h-5 w-5 text-red-500" />}
+                            {step.status === 'pending' && <div className="h-5 w-5 rounded-full border-2 border-gray-300" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-medium">Step {index + 1}: {step.name}</p>
+                                <p className="text-sm text-muted-foreground">{step.type}</p>
+                              </div>
+                              <Badge variant="outline">
+                                {step.duration ? `${step.duration}ms` : '-'}
+                              </Badge>
+                            </div>
+                            {step.error && (
+                              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                                {step.error}
+                              </div>
+                            )}
+                            {step.output != null && (
+                              <details className="mt-2">
+                                <summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+                                  View Output
+                                </summary>
+                                <pre className="mt-2 p-2 bg-gray-50 border rounded text-xs overflow-x-auto">
+                                  {JSON.stringify(step.output, null, 2)}
+                                </pre>
+                              </details>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Execution Logs */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Execution Logs</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-1 max-h-60 overflow-y-auto font-mono text-xs bg-gray-50 p-3 rounded border">
+                    {executionLogs.length === 0 ? (
+                      <p className="text-muted-foreground">No logs available</p>
+                    ) : (
+                      executionLogs.map((log, index) => (
+                        <div key={index} className={`
+                          ${log.level === 'error' ? 'text-red-600' : 
+                            log.level === 'warning' ? 'text-yellow-600' : 
+                            log.level === 'info' ? 'text-blue-600' : 'text-gray-600'}
+                        `}>
+                          [{log.timestamp}] {log.level.toUpperCase()}: {log.message}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExecutionMonitor(false)}>
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       

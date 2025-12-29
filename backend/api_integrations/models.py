@@ -2,7 +2,10 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.conf import settings
 import uuid
+import logging
+from authentication.encryption_utils import encryption_util
 
+logger = logging.getLogger(__name__)
 User = get_user_model()
 
 class APIIntegration(models.Model):
@@ -45,7 +48,8 @@ class APIIntegration(models.Model):
     endpoint = models.URLField()
     method = models.CharField(max_length=10, default='GET')
     headers = models.JSONField(default=dict)
-    authentication = models.JSONField(default=dict)
+    # Store encrypted authentication data
+    encrypted_auth_data = models.TextField(blank=True)
     parameters = models.JSONField(default=list)
     rate_limit = models.JSONField(default=dict)
     retry_policy = models.JSONField(default=dict)
@@ -58,6 +62,31 @@ class APIIntegration(models.Model):
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='api_integrations')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    def set_auth_data(self, auth_data):
+        """Encrypt and store authentication data"""
+        if auth_data:
+            # Convert dict to string for encryption
+            auth_string = str(auth_data)
+            self.encrypted_auth_data = encryption_util.encrypt(auth_string)
+        else:
+            self.encrypted_auth_data = ""
+    
+    def get_auth_data(self):
+        """Retrieve and decrypt authentication data"""
+        if self.encrypted_auth_data:
+            try:
+                decrypted_string = encryption_util.decrypt(self.encrypted_auth_data)
+                # Use json.loads for safer deserialization instead of eval
+                import json
+                return json.loads(decrypted_string) if decrypted_string else {}
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to decode auth data: {str(e)}")
+                return {}
+            except Exception as e:
+                logger.error(f"Error retrieving auth data: {str(e)}")
+                return {}
+        return {}
 
 class APICallResult(models.Model):
     STATUS_CHOICES = [

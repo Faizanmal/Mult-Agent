@@ -3,6 +3,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.contrib.auth import authenticate, login, logout
 from django.utils import timezone
 from django.contrib.auth.hashers import make_password
@@ -22,10 +24,11 @@ from .serializers import (
     APIKeySerializer, UserSessionSerializer, TwoFactorAuthSerializer,
     Enable2FASerializer, Verify2FASerializer
 )
+from .decorators import rate_limit_password_reset
 
 
 class UserRegistrationView(generics.CreateAPIView):
-    """User registration endpoint"""
+    """User registration endpoint with JWT tokens"""
     queryset = CustomUser.objects.all()
     serializer_class = UserRegistrationSerializer
     permission_classes = [AllowAny]
@@ -35,11 +38,12 @@ class UserRegistrationView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         
-        # Create auth token
-        token, created = Token.objects.get_or_create(user=user)
+        # Create JWT tokens
+        refresh = RefreshToken.for_user(user)
         
         return Response({
-            'token': token.key,
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
             'user': CustomUserSerializer(user).data,
             'message': 'User registered successfully'
         }, status=status.HTTP_201_CREATED)
@@ -48,20 +52,21 @@ class UserRegistrationView(generics.CreateAPIView):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):
-    """User login endpoint"""
+    """User login endpoint with JWT tokens"""
     serializer = UserLoginSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.validated_data['user']
         
-        # Create or get token
-        token, created = Token.objects.get_or_create(user=user)
+        # Create JWT tokens
+        refresh = RefreshToken.for_user(user)
         
         # Update last activity
         user.last_activity = timezone.now()
         user.save()
         
         return Response({
-            'token': token.key,
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
             'user': CustomUserSerializer(user).data,
             'message': 'Login successful'
         }, status=status.HTTP_200_OK)
@@ -118,8 +123,9 @@ def change_password_view(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@rate_limit_password_reset(max_attempts=3, window_minutes=60)
 def forgot_password_view(request):
-    """Forgot password endpoint"""
+    """Forgot password endpoint with rate limiting"""
     serializer = PasswordResetRequestSerializer(data=request.data)
     if serializer.is_valid():
         email = serializer.validated_data['email']
@@ -135,15 +141,45 @@ def forgot_password_view(request):
                 defaults={
                     'token': reset_token,
                     'ip_address': request.META.get('REMOTE_ADDR', ''),
-                    'expires_at': timezone.now() + timezone.timedelta(hours=24),
+                    'expires_at': timezone.now() + timezone.timedelta(hours=1),
                     'used': False
                 }
             )
             
+            # Send password reset email
+            reset_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}" if hasattr(settings, 'FRONTEND_URL') else f"http://localhost:3000/reset-password?token={reset_token}"
+            
+            try:
+                send_mail(
+                    subject='Password Reset Request',
+                    message=f'''
+Hello {user.username},
+
+You have requested to reset your password. Click the link below to reset your password:
+
+{reset_url}
+
+This link will expire in 1 hour.
+
+If you did not request this password reset, please ignore this email.
+
+Best regards,
+The Multi-Agent System Team
+                    ''',
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                # Log the error but don't reveal to user
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send password reset email: {str(e)}")
+            
             return Response({'message': 'Password reset email sent'}, status=status.HTTP_200_OK)
         
         except CustomUser.DoesNotExist:
-            # Don't reveal if email exists or not
+            # Don't reveal if email exists or not (security best practice)
             return Response({'message': 'Password reset email sent'}, status=status.HTTP_200_OK)
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -165,6 +201,7 @@ def reset_password_view(request):
                 user = password_reset.user
                 user.set_password(new_password)
                 user.last_password_change = timezone.now()
+                user.password_reset_required = False  # Clear reset requirement flag
                 user.save()
                 
                 # Mark token as used

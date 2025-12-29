@@ -156,3 +156,37 @@ class SkillMatrix(models.Model):
     
     def __str__(self):
         return f"{self.skill_name}: {self.expertise_level:.2f}"
+
+
+class AgentLearningPolicy(models.Model):
+    """Stores learned policies for agents (Q-tables, neural networks, etc.)"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    agent = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name='learning_policies')
+    agent_identifier = models.CharField(max_length=255, db_index=True)
+    
+    # Policy data
+    policy_data = models.JSONField(help_text="Serialized policy (Q-table, weights, etc.)")
+    algorithm_type = models.CharField(max_length=50, default='q_learning')
+    
+    # Metadata
+    total_episodes = models.IntegerField(default=0)
+    average_reward = models.FloatField(default=0.0)
+    is_active = models.BooleanField(default=True)
+    
+    # Version control
+    version = models.IntegerField(default=1)
+    parent_policy = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'agent_learning_policies'
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['agent_identifier', 'is_active']),
+        ]
+    
+    def __str__(self):
+        return f"Policy for {self.agent_identifier} (v{self.version})"
+

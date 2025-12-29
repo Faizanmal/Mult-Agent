@@ -25,12 +25,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-development-key-change-in-production')
+SECRET_KEY = os.getenv('SECRET_KEY', 'your-very-long-random-secret-key-here-at-least-50-characters-for-security')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+
+# Security settings for deployment
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
 
 # Application definition
@@ -64,6 +72,8 @@ INSTALLED_APPS = [
     'webhooks',
     'analytics',
     'workflow_builder',
+    'integrations',
+    'feedback',
 ]
 
 # Add performance tracking middleware
@@ -78,6 +88,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Performance tracking middleware
     'agents.middleware.PerformanceTrackingMiddleware',
+    # Authentication middleware
+    'authentication.middleware.JWTAuthenticationMiddleware',
+    'authentication.middleware.RateLimitMiddleware',
     # Enterprise security middleware
     'authentication.security_middleware.RateLimitMiddleware',
     'authentication.security_middleware.SecurityHeadersMiddleware',
@@ -175,8 +188,22 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOW_CREDENTIALS = True
 
-# Additional CORS settings for development
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only in development
+# Improved CORS settings with environment-specific configuration
+if DEBUG:
+    # Development: Allow localhost and common development ports
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+    CORS_ALLOW_ALL_ORIGINS = False  # Explicitly disable wildcard for development
+else:
+    # Production: Use environment variable for allowed origins
+    import os
+    CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if os.getenv('CORS_ALLOWED_ORIGINS') else []
+    CORS_ALLOW_ALL_ORIGINS = False  # Always disable wildcard in production
+
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -257,6 +284,9 @@ CELERY_TIMEZONE = TIME_ZONE
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 AZURE_API_KEY = os.getenv('AZURE_API_KEY')
+
+# JWT Secret - Use separate secret for JWT signing
+JWT_SECRET = os.getenv('JWT_SECRET', SECRET_KEY)
 
 # File Upload Settings
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB

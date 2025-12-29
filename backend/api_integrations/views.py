@@ -17,7 +17,11 @@ class APIIntegrationListCreateView(generics.ListCreateAPIView):
         return APIIntegration.objects.filter(user=self.request.user)
     
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        # Extract authentication data and encrypt it
+        auth_data = serializer.validated_data.pop('authentication', {})
+        integration = serializer.save(user=self.request.user)
+        integration.set_auth_data(auth_data)
+        integration.save()
 
 
 class APIIntegrationDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -27,6 +31,22 @@ class APIIntegrationDetailView(generics.RetrieveUpdateDestroyAPIView):
     
     def get_queryset(self):
         return APIIntegration.objects.filter(user=self.request.user)
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        
+        # Extract authentication data and encrypt it
+        auth_data = serializer.validated_data.pop('authentication', {})
+        self.perform_update(serializer)
+        
+        # Update encrypted authentication data
+        instance.set_auth_data(auth_data)
+        instance.save()
+        
+        return Response(serializer.data)
 
 
 @api_view(['POST'])

@@ -25,13 +25,13 @@ urlpatterns = [
     path('mcp/', include('Mcp_Integration.urls')),
     path('models/', include('models.urls')),
     path('coordination/', include('Multi_agents_cordination.urls')),
-    path('intelligence/', include('Multi_model_Intelligence.urls')),
+    path('intelligence/', include('Multi_model_Intelligence.urls', namespace='intelligence')),
     path('performance/', include('real_time_performance.urls')),
     path('use-case/', include('use_case.urls')),
     # Enhanced feature URLs
-    path('authentication/api/', include('authentication.urls')),
-    path('api-integrations/api/', include('api_integrations.urls')),
-    path('reporting/api/', include('reporting.urls')),
+    path('authentication/api/', include('authentication.urls', namespace='authentication_api')),
+    path('api-integrations/api/', include('api_integrations.urls', namespace='api_integrations_api')),
+    path('reporting/api/', include('reporting.urls', namespace='reporting_api')),
     path('notifications/api/', include('notifications.urls')),
     path('data-pipelines/api/', include('data_pipelines.urls')),
     # New feature modules
@@ -40,9 +40,15 @@ urlpatterns = [
     path('webhooks/', include('webhooks.urls')),
     path('analytics/', include('analytics.urls')),
     path('workflow-builder/', include('workflow_builder.urls')),
+    path('integrations/', include('integrations.urls', namespace='integrations_main')),
+    path('feedback/', include('feedback.urls')),
     
-    # Direct API routes for frontend
-    path('', include('api_integrations.urls', namespace='api_integrations_root')),
+    # API endpoints with /api/ prefix for frontend
+    path('api/multimodel/', include('Multi_model_Intelligence.urls', namespace='api_multimodel')),
+    path('api/feedback/', include('feedback.urls')),
+    path('api/reporting/', include('reporting.urls', namespace='api_reporting')),
+    path('api/integrations/', include('integrations.urls', namespace='integrations_api')),
+    path('api/auth/', include('authentication.urls', namespace='api_auth')),
 ]
 
 # Serve media files during development

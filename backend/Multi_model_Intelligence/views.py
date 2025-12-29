@@ -351,3 +351,258 @@ class MultiModalIntelligenceViewSet(viewsets.ViewSet):
             'confidence': 0.75,
             'description': f"Analysis of {mod1} and {mod2} modalities"
         }
+
+
+# ===== MULTI-MODEL ORCHESTRATION VIEWSET =====
+
+class MultiModelViewSet(viewsets.ViewSet):
+    """ViewSet for multi-model orchestration operations"""
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['post'])
+    def chat(self, request):
+        """
+        Execute chat completion with automatic model selection
+        
+        POST /api/multimodel/chat/
+        {
+            "messages": [...],
+            "complexity": "moderate",  # optional
+            "priority": "balanced",  # speed, cost, quality, balanced
+            "stream": false
+        }
+        """
+        try:
+            from .services import get_orchestrator, TaskComplexity
+            orchestrator = get_orchestrator()
+            
+            messages = request.data.get('messages', [])
+            if not messages:
+                return Response(
+                    {'error': 'Messages are required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get parameters
+            complexity_str = request.data.get('complexity')
+            complexity = TaskComplexity[complexity_str.upper()] if complexity_str else None
+            
+            priority = request.data.get('priority', 'balanced')
+            stream = request.data.get('stream', False)
+            
+            # Get user preferences
+            user_prefs = self._get_user_preferences(request.user)
+            
+            # Execute
+            result = orchestrator.chat_completion(
+                messages=messages,
+                complexity=complexity,
+                priority=user_prefs.get('priority', priority),
+                stream=stream,
+                constraints=user_prefs.get('constraints', {})
+            )
+            
+            if 'error' not in result:
+                # Log execution
+                self._log_execution(request.user, messages, result)
+            
+            return Response(result)
+            
+        except Exception as e:
+            logger.error(f"Chat completion error: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['get'])
+    def models(self, request):
+        """Get available models and their capabilities"""
+        from .services import ModelConfig
+        
+        models_data = {}
+        for provider, models in ModelConfig.MODELS.items():
+            models_data[provider.value] = {
+                model_name: {
+                    'complexity': [c.value for c in config['complexity']],
+                    'speed': config['speed'],
+                    'cost': config['cost'],
+                    'context_window': config['context_window'],
+                    'strengths': config['strengths']
+                }
+                for model_name, config in models.items()
+            }
+        
+        return Response(models_data)
+    
+    @action(detail=False, methods=['get'])
+    def performance(self, request):
+        """Get performance insights"""
+        from .services import get_orchestrator
+        from .models import ModelExecution
+        
+        orchestrator = get_orchestrator()
+        insights = orchestrator.get_performance_insights()
+        
+        # Add user-specific metrics
+        user_executions = ModelExecution.objects.filter(user=request.user).order_by('-created_at')[:100]
+        
+        user_stats = {
+            'total_executions': user_executions.count(),
+            'success_rate': sum(1 for e in user_executions if e.success) / max(user_executions.count(), 1),
+            'avg_duration': sum(e.duration_ms for e in user_executions) / max(user_executions.count(), 1) if user_executions.count() > 0 else 0,
+            'total_tokens': sum(e.tokens_used for e in user_executions),
+            'estimated_cost': sum(float(e.estimated_cost) for e in user_executions)
+        }
+        
+        return Response({
+            'global_insights': insights,
+            'user_stats': user_stats
+        })
+    
+    @action(detail=False, methods=['get', 'put'])
+    def preferences(self, request):
+        """Get or update user model preferences"""
+        from .models import ModelPreference
+        
+        if request.method == 'GET':
+            try:
+                pref = ModelPreference.objects.get(user=request.user)
+                return Response({
+                    'default_priority': pref.default_priority,
+                    'max_cost_per_request': str(pref.max_cost_per_request) if pref.max_cost_per_request else None,
+                    'monthly_budget': str(pref.monthly_budget) if pref.monthly_budget else None,
+                    'preferred_providers': pref.preferred_providers,
+                    'disabled_providers': pref.disabled_providers,
+                    'complexity_overrides': pref.complexity_overrides
+                })
+            except ModelPreference.DoesNotExist:
+                return Response({
+                    'default_priority': 'balanced',
+                    'preferred_providers': [],
+                    'disabled_providers': [],
+                    'complexity_overrides': {}
+                })
+        
+        elif request.method == 'PUT':
+            pref, created = ModelPreference.objects.get_or_create(user=request.user)
+            
+            # Update fields
+            if 'default_priority' in request.data:
+                pref.default_priority = request.data['default_priority']
+            if 'max_cost_per_request' in request.data:
+                pref.max_cost_per_request = request.data['max_cost_per_request']
+            if 'monthly_budget' in request.data:
+                pref.monthly_budget = request.data['monthly_budget']
+            if 'preferred_providers' in request.data:
+                pref.preferred_providers = request.data['preferred_providers']
+            if 'disabled_providers' in request.data:
+                pref.disabled_providers = request.data['disabled_providers']
+            if 'complexity_overrides' in request.data:
+                pref.complexity_overrides = request.data['complexity_overrides']
+            
+            pref.save()
+            
+            return Response({'message': 'Preferences updated successfully'})
+    
+    @action(detail=False, methods=['get'])
+    def history(self, request):
+        """Get user's model execution history"""
+        from .models import ModelExecution
+        
+        limit = int(request.query_params.get('limit', 50))
+        provider = request.query_params.get('provider')
+        complexity = request.query_params.get('complexity')
+        
+        queryset = ModelExecution.objects.filter(user=request.user)
+        
+        if provider:
+            queryset = queryset.filter(provider=provider)
+        if complexity:
+            queryset = queryset.filter(complexity=complexity)
+        
+        executions = queryset[:limit]
+        
+        data = [{
+            'id': str(e.id),
+            'provider': e.provider,
+            'model_name': e.model_name,
+            'complexity': e.complexity,
+            'duration_ms': e.duration_ms,
+            'tokens_used': e.tokens_used,
+            'estimated_cost': str(e.estimated_cost),
+            'success': e.success,
+            'created_at': e.created_at.isoformat()
+        } for e in executions]
+        
+        return Response(data)
+    
+    @action(detail=False, methods=['post'])
+    def analyze_complexity(self, request):
+        """Analyze task complexity for given messages"""
+        from .services import get_orchestrator
+        
+        messages = request.data.get('messages', [])
+        if not messages:
+            return Response(
+                {'error': 'Messages are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        orchestrator = get_orchestrator()
+        complexity = orchestrator.analyze_task_complexity(messages)
+        
+        # Get recommended model
+        provider, model = orchestrator.select_optimal_model(
+            complexity,
+            request.data.get('priority', 'balanced')
+        )
+        
+        return Response({
+            'complexity': complexity.value,
+            'recommended_provider': provider.value,
+            'recommended_model': model
+        })
+    
+    def _get_user_preferences(self, user):
+        """Get user preferences"""
+        from .models import ModelPreference
+        
+        try:
+            pref = ModelPreference.objects.get(user=user)
+            return {
+                'priority': pref.default_priority,
+                'constraints': {
+                    'max_cost': 'low' if pref.max_cost_per_request and float(pref.max_cost_per_request) < 0.01 else None
+                }
+            }
+        except ModelPreference.DoesNotExist:
+            return {'priority': 'balanced', 'constraints': {}}
+    
+    def _log_execution(self, user, messages, result):
+        """Log model execution"""
+        from .models import ModelExecution
+        
+        try:
+            metadata = result.get('metadata', {})
+            usage = result.get('usage', {})
+            
+            ModelExecution.objects.create(
+                user=user,
+                provider=metadata.get('provider', 'unknown'),
+                model_name=metadata.get('model', 'unknown'),
+                complexity=metadata.get('complexity', 'simple'),
+                prompt=str(messages[-1].get('content', ''))[:1000] if messages else '',
+                response=result.get('content', '')[:1000] if result.get('content') else '',
+                duration_ms=int(metadata.get('duration', 0) * 1000),
+                tokens_used=usage.get('total_tokens', 0),
+                prompt_tokens=usage.get('prompt_tokens', 0),
+                completion_tokens=usage.get('completion_tokens', 0),
+                estimated_cost=0.0,  # Calculate based on provider pricing
+                success='error' not in result,
+                error_message=result.get('error'),
+                priority=metadata.get('priority', 'balanced')
+            )
+        except Exception as e:
+            logger.error(f"Failed to log execution: {e}")
+

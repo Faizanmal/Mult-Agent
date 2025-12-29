@@ -25,7 +25,8 @@ import {
   AlertCircle,
   RefreshCw,
   Download,
-  Layers
+  Layers,
+  Save
 } from 'lucide-react';
 import { 
   getWorkflowTemplates,
@@ -472,35 +473,161 @@ export default function VisualWorkflowBuilder() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 min-h-[500px] bg-gray-50">
-                <div className="text-center">
-                  <Workflow className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                    Visual Workflow Canvas
-                  </h3>
-                  <p className="text-gray-500 mb-6">
-                    Interactive drag-and-drop workflow builder coming soon!
-                  </p>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 max-w-2xl mx-auto">
-                    {nodeTypes.map((type) => {
-                      const Icon = type.icon;
-                      return (
-                        <div
-                          key={type.value}
-                          className="flex flex-col items-center gap-2 p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 cursor-pointer transition-colors"
-                        >
-                          <div className={`${type.color} p-3 rounded-full`}>
-                            <Icon className="h-6 w-6 text-white" />
+              <div className="border-2 border-gray-200 rounded-lg min-h-[600px] bg-white overflow-hidden">
+                <div className="flex h-[600px]">
+                  {/* Node Palette */}
+                  <div className="w-64 border-r bg-gray-50 overflow-y-auto p-4">
+                    <h3 className="font-semibold mb-3 text-sm">Workflow Nodes</h3>
+                    <div className="space-y-2">
+                      {nodeTypes.map((type) => {
+                        const Icon = type.icon;
+                        return (
+                          <div
+                            key={type.value}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData('nodeType', type.value)
+                              e.dataTransfer.setData('nodeLabel', type.label)
+                            }}
+                            className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-white cursor-move transition-all hover:shadow-sm"
+                          >
+                            <div className={`${type.color} p-2 rounded`}>
+                              <Icon className="h-4 w-4 text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{type.label}</p>
+                              <p className="text-xs text-gray-500">Drag to canvas</p>
+                            </div>
                           </div>
-                          <span className="text-sm font-medium">{type.label}</span>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  <p className="text-xs text-gray-400 mt-6">
-                    Use the Templates tab to create and manage workflows
+                  {/* Canvas Area */}
+                  <div 
+                    className="flex-1 relative bg-gradient-to-br from-gray-50 to-gray-100"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      const nodeType = e.dataTransfer.getData('nodeType')
+                      const nodeLabel = e.dataTransfer.getData('nodeLabel')
+                      
+                      if (nodeType) {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const x = e.clientX - rect.left
+                        const y = e.clientY - rect.top
+                        
+                        const newNode = {
+                          id: `node-${Date.now()}`,
+                          type: nodeType,
+                          label: nodeLabel,
+                          position: { x, y },
+                          config: {}
+                        }
+                        
+                        setNewTemplate(prev => ({
+                          ...prev,
+                          nodes: [...prev.nodes, {
+                            id: newNode.id,
+                            node_type: newNode.type,
+                            config: newNode.config,
+                            position_x: newNode.position.x,
+                            position_y: newNode.position.y,
+                          }]
+                        }));
+                        
+                        toast('Node Added');
+                      }
+                    }}
+                  >
+                    {/* Grid Background */}
+                    <div className="absolute inset-0" style={{
+                      backgroundImage: 'radial-gradient(circle, #e5e7eb 1px, transparent 1px)',
+                      backgroundSize: '20px 20px'
+                    }} />
+                    
+                    {/* Instructions */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="text-center bg-white/80 backdrop-blur-sm p-8 rounded-lg shadow-lg max-w-md">
+                        <Workflow className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+                        <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                          Interactive Workflow Designer
+                        </h3>
+                        <p className="text-gray-600 mb-4">
+                          Drag nodes from the left palette onto this canvas to build your workflow
+                        </p>
+                        <div className="space-y-2 text-sm text-gray-700">
+                          <div className="flex items-center gap-2 justify-center">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                            <span>Drag nodes to position them</span>
+                          </div>
+                          <div className="flex items-center gap-2 justify-center">
+                            <div className="w-2 h-2 bg-green-500 rounded-full" />
+                            <span>Click nodes to configure</span>
+                          </div>
+                          <div className="flex items-center gap-2 justify-center">
+                            <div className="w-2 h-2 bg-purple-500 rounded-full" />
+                            <span>Connect nodes to create flow</span>
+                          </div>
+                        </div>
+                        <div className="mt-6 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <p className="text-xs text-blue-800">
+                            <strong>Tip:</strong> Use the WorkflowBuilder component for a full React Flow experience with advanced features!
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Toolbar */}
+                    <div className="absolute top-4 right-4 flex gap-2 bg-white rounded-lg shadow-md p-2">
+                      <Button size="sm" variant="outline" title="Zoom In">
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      </Button>
+                      <Button size="sm" variant="outline" title="Zoom Out">
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                        </svg>
+                      </Button>
+                      <Button size="sm" variant="outline" title="Fit View">
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                      </Button>
+                      <div className="w-px bg-gray-200" />
+                      <Button size="sm" variant="outline" title="Save">
+                        <Save className="h-4 w-4" />
+                      </Button>
+                      <Button size="sm" variant="default" title="Execute">
+                        <Play className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {/* Mini Map Preview */}
+                    <div className="absolute bottom-4 right-4 w-48 h-32 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+                      <div className="w-full h-full bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center text-xs text-gray-500">
+                        Mini Map
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center gap-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex-shrink-0">
+                  <div className="h-10 w-10 bg-blue-500 rounded-full flex items-center justify-center">
+                    <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-semibold text-blue-900 mb-1">Enhanced Workflow Builder</h4>
+                  <p className="text-sm text-blue-700">
+                    For advanced features like real-time collaboration, version control, and AI assistance, 
+                    check out the full <strong>WorkflowBuilder</strong> component with React Flow integration.
                   </p>
                 </div>
               </div>

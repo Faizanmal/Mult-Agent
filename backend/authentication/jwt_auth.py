@@ -46,7 +46,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
         try:
             payload = jwt.decode(
                 token,
-                settings.SECRET_KEY,
+                settings.JWT_SECRET,  # Use separate JWT secret
                 algorithms=['HS256']
             )
         except jwt.ExpiredSignatureError:
@@ -78,7 +78,7 @@ def generate_access_token(user):
         'type': 'access'
     }
     
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm='HS256')  # Use separate JWT secret
 
 
 def generate_refresh_token(user):
@@ -92,7 +92,8 @@ def generate_refresh_token(user):
         'type': 'refresh'
     }
     
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
+    # Add a unique identifier to prevent reuse
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm='HS256')  # Use separate JWT secret
 
 
 def refresh_access_token(refresh_token):
@@ -102,7 +103,7 @@ def refresh_access_token(refresh_token):
     try:
         payload = jwt.decode(
             refresh_token,
-            settings.SECRET_KEY,
+            settings.JWT_SECRET,  # Use separate JWT secret
             algorithms=['HS256']
         )
         
