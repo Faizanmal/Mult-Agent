@@ -1,15 +1,14 @@
 # agents/services/analytics_dashboard.py
 
-import json
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 from django.utils import timezone
-from django.db.models import Count, Avg, Sum, Q, F
+from django.db.models import Count, Avg, Q, F
 from django.contrib.auth import get_user_model
 from ..models import (
-    Agent, Task, TaskExecution, Session, Message, 
-    AgentStatus, TaskStatus, PerformanceMetric
+    Agent, Task, Session, Message, 
+    AgentStatus, TaskStatus
 )
 from .performance_tracker import PerformanceTracker
 

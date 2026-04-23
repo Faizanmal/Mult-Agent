@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from . import views
 from . import collaboration_views
 from . import workflow_views
+from . import health_views
 
 router = DefaultRouter()
 # Existing endpoints
@@ -29,4 +30,10 @@ app_name = 'agents'
 
 urlpatterns = [
     path('api/', include(router.urls)),
+    # Health check endpoints
+    path('health/', health_views.health_check, name='health_check'),
+    path('health/status/', health_views.system_status, name='system_status'),
+    path('health/metrics/', health_views.performance_metrics, name='performance_metrics'),
+    path('health/ready/', health_views.readiness_check, name='readiness_check'),
+    path('health/live/', health_views.liveness_check, name='liveness_check'),
 ]

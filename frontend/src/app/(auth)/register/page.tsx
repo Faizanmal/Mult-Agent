@@ -31,13 +31,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
 const registerSchema = z.object({
@@ -105,8 +98,6 @@ export default function RegisterPage() {
       acceptTerms: false,
     },
   });
-
-  const selectedPlan = form.watch('plan');
 
   const onSubmit = async (data: RegisterFormValues) => {
     setIsLoading(true);
@@ -554,8 +545,8 @@ export default function RegisterPage() {
             {/* Testimonial */}
             <div className="glass-morphism rounded-2xl p-6 max-w-md mx-auto">
               <p className="text-lg mb-4">
-                "MultiAgent AI transformed how we handle customer support. 
-                Our response time dropped by 80%."
+                &ldquo;MultiAgent AI transformed how we handle customer support. 
+                Our response time dropped by 80%.&rdquo;
               </p>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-full bg-white/20" />

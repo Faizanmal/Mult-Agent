@@ -6,11 +6,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 from .collaboration_models import CollaborationSession, TeamMember, Comment, ActivityLog, Notification
-from .collaboration_serializers import CollaborationSessionSerializer, TeamMemberSerializer, CommentSerializer, ActivityLogSerializer, NotificationSerializer
 
 # Get the custom user model
 User = get_user_model()

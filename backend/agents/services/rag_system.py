@@ -4,7 +4,6 @@ Advanced AI Features: RAG, Vector Database, Semantic Search
 import os
 import logging
 from typing import List, Dict, Optional, Any
-import numpy as np
 from sentence_transformers import SentenceTransformer
 import chromadb
 from chromadb.config import Settings

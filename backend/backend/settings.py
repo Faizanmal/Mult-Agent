@@ -28,7 +28,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'your-very-long-random-secret-key-here-at-least-50-characters-for-security')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+DEBUG = True
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
 
@@ -88,6 +88,10 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Performance tracking middleware
     'agents.middleware.PerformanceTrackingMiddleware',
+    # Request logging middleware
+    'agents.logging_middleware.RequestLoggingMiddleware',
+    'agents.logging_middleware.APIMetricsMiddleware',
+    'agents.logging_middleware.ErrorTrackingMiddleware',
     # Authentication middleware
     'authentication.middleware.JWTAuthenticationMiddleware',
     'authentication.middleware.RateLimitMiddleware',
@@ -197,7 +201,7 @@ if DEBUG:
         "http://localhost:8000",
         "http://127.0.0.1:8000",
     ]
-    CORS_ALLOW_ALL_ORIGINS = False  # Explicitly disable wildcard for development
+    CORS_ALLOW_ALL_ORIGINS = True  # Allow all origins in development
 else:
     # Production: Use environment variable for allowed origins
     import os

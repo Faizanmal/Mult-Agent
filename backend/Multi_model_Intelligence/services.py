@@ -5,9 +5,8 @@ Supports dynamic model switching and orchestration across Groq, OpenAI, and Anth
 
 import logging
 import time
-from typing import Dict, Any, List, Optional, Generator
+from typing import Dict, Any, List, Optional
 from enum import Enum
-import json
 from django.conf import settings
 import os
 
@@ -291,6 +290,41 @@ class MultiModelOrchestrator:
             Response dictionary with content and metadata
         """
         start_time = time.time()
+        
+        # Ensure markdown formatting system prompt
+        has_system_message = any(msg.get('role') == 'system' for msg in messages)
+        if not has_system_message:
+            messages.insert(0, {
+                "role": "system", 
+                "content": """You are a helpful AI assistant.
+
+CRITICAL FORMATTING REQUIREMENTS:
+- You MUST format ALL responses using proper Markdown syntax
+- Use headers: ## Header for sections
+- Use **bold text** for emphasis
+- Use bullet points: - Item for lists
+- Use numbered lists: 1. Item for steps
+- Use `inline code` for code references
+- Use ```language code blocks for code examples
+- Structure your response with clear sections and formatting
+
+EXAMPLE FORMAT:
+## Introduction
+Hello, I'm your AI assistant.
+
+## What I Can Help With
+- **General Questions**: Answering various topics
+- **Code Support**: Helping with programming
+
+## Getting Started
+To begin, simply ask me a question!
+
+```python
+print("Hello, World!")
+```
+
+Please format ALL your responses this way. Never use plain text paragraphs."""
+            })
         
         # Auto-detect complexity if not provided
         if complexity is None:

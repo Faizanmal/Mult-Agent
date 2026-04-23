@@ -11,9 +11,6 @@ import {
   ArrowDown,
   Clock,
   CheckCircle2,
-  AlertCircle,
-  TrendingUp,
-  Users,
   MessageSquare,
   BarChart3,
   Sparkles,
@@ -26,14 +23,13 @@ import {
   Eye,
   Cpu,
   Database,
-  Globe,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 
 // Animation variants
@@ -135,7 +131,7 @@ const quickActions = [
 ];
 
 export default function DashboardPage() {
-  const [isLoading, setIsLoading] = useState(true);
+  const [ , setIsLoading] = useState(true);
 
   useEffect(() => {
     // Simulate data loading

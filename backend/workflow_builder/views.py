@@ -7,12 +7,11 @@ from django.db import transaction
 from django.db import models
 
 from .models import (
-    WorkflowTemplate, VisualWorkflow, WorkflowNode,
-    WorkflowExecution, WorkflowVersion
+    WorkflowTemplate, VisualWorkflow, WorkflowExecution, WorkflowVersion
 )
 from .serializers import (
     WorkflowTemplateSerializer, VisualWorkflowSerializer,
-    WorkflowNodeSerializer, WorkflowExecutionSerializer,
+    WorkflowExecutionSerializer,
     WorkflowVersionSerializer
 )
 
@@ -98,7 +97,6 @@ class VisualWorkflowViewSet(viewsets.ModelViewSet):
     async def execute(self, request, pk=None):
         """Execute a workflow"""
         from agents.services.workflow_engine import WorkflowEngine
-        import asyncio
         
         workflow = self.get_object()
         input_data = request.data.get('input_data', {})

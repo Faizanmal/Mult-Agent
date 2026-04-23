@@ -3,7 +3,7 @@ GDPR Compliance and Data Privacy Service
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -139,7 +139,7 @@ class GDPRComplianceService:
             Complete user data export
         """
         from authentication.models import UserDataExport
-        from agents.models import Agent, Session, Message
+        from agents.models import Agent, Session
         from Multi_model_Intelligence.models import ModelExecution
         
         try:
@@ -283,7 +283,6 @@ class GDPRComplianceService:
     
     def check_data_retention(self) -> Dict[str, Any]:
         """Check and enforce data retention policies"""
-        from django.db.models import Q
         from datetime import timedelta
         
         retention_days = 365  # 1 year retention

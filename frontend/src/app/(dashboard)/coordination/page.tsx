@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Network,
   Plus,
@@ -12,26 +12,15 @@ import {
   Eye,
   Trash2,
   Settings,
-  RefreshCw,
-  CheckCircle2,
-  XCircle,
   Clock,
   Users,
   Zap,
-  Activity,
   ArrowRight,
   Bot,
-  MessageSquare,
-  GitBranch,
   Target,
   Layers,
   Shuffle,
-  BarChart3,
-  AlertCircle,
-  Link2,
   Crown,
-  Shield,
-  Cpu,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,9 +29,6 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import {
   Select,
@@ -140,7 +126,6 @@ const coordinationPatterns = [
 export default function CoordinationPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [selectedTeam, setSelectedTeam] = useState<typeof teams[0] | null>(null);
 
   const stats = [
     { label: 'Active Teams', value: teams.filter(t => t.status === 'running').length, icon: Network, color: 'text-primary' },
@@ -290,7 +275,7 @@ export default function CoordinationPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => setSelectedTeam(team)}>
+                              <DropdownMenuItem>
                                 <Eye className="h-4 w-4 mr-2" />
                                 View Details
                               </DropdownMenuItem>

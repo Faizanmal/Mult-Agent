@@ -3,9 +3,8 @@ import numpy as np
 from PIL import Image
 import pytesseract
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import os
-import base64
 
 logger = logging.getLogger(__name__)
 

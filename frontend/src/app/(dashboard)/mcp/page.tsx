@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Cpu,
   Search,
@@ -24,9 +24,7 @@ import {
   FileCode,
   Layers,
   RefreshCw,
-  Filter,
   MoreVertical,
-  Edit,
   Trash2,
   Star,
   StarOff,
@@ -48,15 +46,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -68,7 +57,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 // MCP Tools data
@@ -200,9 +188,9 @@ const executionHistory = [
 export default function MCPPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [selectedTool, setSelectedTool] = useState<typeof mcpTools[0] | null>(null);
+  const [ , setSelectedTool] = useState<typeof mcpTools[0] | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [executionResult, setExecutionResult] = useState<any>(null);
+  const [executionResult, setExecutionResult] = useState<{ success: boolean; output: { message: string; data: Record<string, unknown> }; duration: string } | null>(null);
 
   const categories = ['all', 'filesystem', 'database', 'network', 'execution', 'data', 'ai'];
 

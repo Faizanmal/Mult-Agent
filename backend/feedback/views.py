@@ -145,7 +145,7 @@ class AgentRatingViewSet(viewsets.ReadOnlyModelViewSet):
         
         # Verify agent ownership
         from agents.models import Agent
-        agent = get_object_or_404(Agent, id=agent_id, owner=request.user)
+        get_object_or_404(Agent, id=agent_id, owner=request.user)
         
         feedback_service = get_feedback_service()
         insights = feedback_service.get_agent_insights(agent_id, days)
@@ -181,7 +181,7 @@ class FeedbackTrendViewSet(viewsets.ReadOnlyModelViewSet):
         if agent_id:
             # Verify agent ownership
             from agents.models import Agent
-            agent = get_object_or_404(Agent, id=agent_id, owner=request.user)
+            get_object_or_404(Agent, id=agent_id, owner=request.user)
         
         feedback_service = get_feedback_service()
         trend = feedback_service.generate_trend_report(period, agent_id)

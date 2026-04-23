@@ -21,7 +21,6 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import {
   Workflow,
-  Plus,
   Play,
   Save,
   Download,
@@ -34,17 +33,11 @@ import {
   Bot,
   GitBranch,
   Timer,
-  Webhook,
-  Database,
-  MessageSquare,
   ArrowRight,
-  Settings,
   Trash2,
   Copy,
   Layers,
-  Sparkles,
   ChevronRight,
-  FileCode,
   Zap,
   Filter,
   Globe,
@@ -92,7 +85,7 @@ const nodeTypesConfig = {
 };
 
 // Custom Node Component
-const CustomNode = ({ data, selected }: { data: any; selected: boolean }) => {
+const CustomNode = ({ data, selected }: { data: { nodeType: string; label: string; description?: string; [key: string]: unknown }; selected: boolean }) => {
   const config = nodeTypesConfig[data.nodeType as keyof typeof nodeTypesConfig] || nodeTypesConfig.action;
   const Icon = config.icon;
 

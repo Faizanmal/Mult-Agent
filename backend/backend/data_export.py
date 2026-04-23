@@ -8,7 +8,7 @@ import io
 from typing import List, Dict, Any
 from datetime import datetime
 from django.http import HttpResponse, StreamingHttpResponse
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
@@ -141,7 +141,7 @@ class DataExporter:
                 try:
                     if len(str(cell.value)) > max_length:
                         max_length = len(cell.value)
-                except:
+                except Exception:
                     pass
             adjusted_width = min(max_length + 2, 50)
             ws.column_dimensions[column_letter].width = adjusted_width

@@ -15,11 +15,10 @@ from collections import defaultdict
 import json
 
 from django.utils import timezone
-from django.db import transaction
 from asgiref.sync import sync_to_async
 
 from ..models import Agent, Task, TaskStatus, TaskPriority, Session
-from .workflow_templates import WorkflowTemplates, get_template
+from .workflow_templates import get_template
 from .groq_service import GroqService
 from .multimodal_processor import MultiModalProcessor
 
@@ -203,9 +202,6 @@ class WorkflowOrchestrator:
         """
         execution.status = "running"
         
-        # Build dependency graph
-        dependency_graph = self._build_dependency_graph(execution.steps)
-        
         # Execute steps in topological order with parallelism
         completed_steps: Set[str] = set()
         failed_steps: Set[str] = set()
@@ -359,9 +355,9 @@ class WorkflowOrchestrator:
         
         prompt_parts = [
             f"# Task: {step.name}",
-            f"\n## Objective",
+            "\n## Objective",
             f"{step.config.get('task', 'Complete the assigned task')}",
-            f"\n## Workflow Context",
+            "\n## Workflow Context",
             f"Workflow: {execution.workflow_name}",
             f"Input Data: {json.dumps(execution.input_data, indent=2)}",
         ]
@@ -375,13 +371,13 @@ class WorkflowOrchestrator:
         
         # Add specific instructions from config
         if 'instructions' in step.config:
-            prompt_parts.append(f"\n## Specific Instructions")
+            prompt_parts.append("\n## Specific Instructions")
             prompt_parts.append(step.config['instructions'])
         
         # Add expected outputs
         if step.outputs:
-            prompt_parts.append(f"\n## Expected Outputs")
-            prompt_parts.append(f"Please provide the following in your response:")
+            prompt_parts.append("\n## Expected Outputs")
+            prompt_parts.append("Please provide the following in your response:")
             for output in step.outputs:
                 prompt_parts.append(f"- {output}")
         
@@ -781,6 +777,6 @@ class WorkflowOrchestrator:
         if 'audio' in results:
             audio_result = results['audio']
             if 'analysis' in audio_result and 'transcription' in audio_result['analysis']:
-                insights.append(f"Audio transcription available")
+                insights.append("Audio transcription available")
         
         return insights

@@ -4,7 +4,6 @@ Serverless agent execution with Azure Functions
 """
 
 import logging
-import json
 import requests
 from typing import Dict, Any, Optional, List
 from django.conf import settings

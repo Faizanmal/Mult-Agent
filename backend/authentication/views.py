@@ -1,28 +1,20 @@
-from rest_framework import status, generics, permissions
+from rest_framework import status, generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from django.contrib.auth import authenticate, login, logout
 from django.utils import timezone
-from django.contrib.auth.hashers import make_password
 from django.core.mail import send_mail
 from django.conf import settings
-import pyotp
-import qrcode
-import io
-import base64
 import secrets
 import string
 
-from .models import CustomUser, APIKey, UserSession, PasswordReset, TwoFactorAuth
+from .models import CustomUser, APIKey, UserSession, PasswordReset
 from .serializers import (
     CustomUserSerializer, UserRegistrationSerializer, UserLoginSerializer,
     ChangePasswordSerializer, PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
-    APIKeySerializer, UserSessionSerializer, TwoFactorAuthSerializer,
-    Enable2FASerializer, Verify2FASerializer
+    APIKeySerializer, UserSessionSerializer
 )
 from .decorators import rate_limit_password_reset
 

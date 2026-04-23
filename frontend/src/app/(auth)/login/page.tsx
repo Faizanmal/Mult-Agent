@@ -22,7 +22,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Form,
@@ -32,7 +31,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { cn } from '@/lib/utils';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),

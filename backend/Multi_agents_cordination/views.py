@@ -6,9 +6,8 @@ from django.conf import settings
 from django.utils import timezone
 import logging
 
-from .models import AgentCoordinationSession, AgentInteraction, CoordinationMetric
-from agents.models import Agent, Session, Task
-from agents.services.agent_coordinator import AgentCoordinator
+from .models import AgentCoordinationSession, AgentInteraction
+from agents.models import Agent
 from agents.services.workflow_orchestrator import WorkflowOrchestrator
 
 logger = logging.getLogger(__name__)

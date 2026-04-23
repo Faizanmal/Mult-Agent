@@ -5,7 +5,7 @@ Supports custom agent plugins and marketplace functionality
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.conf import settings
-from django.core.validators import URLValidator, RegexValidator
+from django.core.validators import URLValidator
 import uuid
 from decimal import Decimal
 

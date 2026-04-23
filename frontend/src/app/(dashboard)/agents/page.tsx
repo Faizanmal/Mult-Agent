@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Bot,
   Plus,
   Search,
-  Filter,
   MoreVertical,
   Play,
   Pause,
@@ -19,13 +18,8 @@ import {
   Zap,
   Database,
   Settings,
-  ChevronDown,
   Activity,
-  TrendingUp,
   Clock,
-  CheckCircle2,
-  AlertCircle,
-  BarChart3,
   RefreshCw,
   Grid3X3,
   List,
@@ -35,13 +29,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -147,13 +138,12 @@ const sampleAgents = [
 ];
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState(sampleAgents);
+  const [agents] = useState(sampleAgents);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState<typeof sampleAgents[0] | null>(null);
 
   // Filter agents
   const filteredAgents = agents.filter(agent => {

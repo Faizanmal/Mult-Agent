@@ -1,13 +1,12 @@
 "use client";
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Webhook,
   Plus,
   Search,
   MoreVertical,
-  ExternalLink,
   Copy,
   Trash2,
   Settings,
@@ -18,28 +17,21 @@ import {
   Clock,
   Activity,
   RefreshCw,
-  Filter,
-  ArrowUpRight,
-  ArrowDownLeft,
   Zap,
   Globe,
-  Lock,
-  AlertTriangle,
   Eye,
   EyeOff,
   RotateCcw,
   Send,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import {
   Select,
@@ -54,7 +46,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
 } from '@/components/ui/dialog';
 import {

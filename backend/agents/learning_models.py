@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.conf import settings
 import uuid
 from decimal import Decimal
-from datetime import datetime, timedelta
+from datetime import datetime
 from .models import Agent, Session
 
 User = get_user_model()

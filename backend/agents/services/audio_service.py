@@ -2,7 +2,7 @@ import speech_recognition as sr
 from pydub import AudioSegment
 import numpy as np
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import os
 import tempfile
 

@@ -1,15 +1,13 @@
 # agents/services/workflow_engine.py
 
-import json
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Any, Callable
 from django.utils import timezone
 from django.db import transaction
 from ..models import (
-    Agent, Task, TaskStatus, TaskPriority, 
-    WorkflowTemplate, Session, User
+    Agent, Task, TaskStatus, TaskPriority
 )
 from .agent_selector import SmartAgentSelector
 from .performance_tracker import PerformanceTracker
@@ -532,7 +530,6 @@ class WorkflowEngine:
         await asyncio.sleep(0.1)
         
         # Simulate success/failure based on agent capabilities
-        success_probability = 0.9  # 90% success rate
         success = True  # For demo, always succeed
         
         if success:

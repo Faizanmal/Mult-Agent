@@ -9,13 +9,12 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.conf import settings
-from django.shortcuts import get_object_or_404
 import asyncio
 import logging
 
 from .services.workflow_templates import WorkflowTemplates, get_template, WorkflowCategory
 from .services.workflow_orchestrator import WorkflowOrchestrator
-from .models import Session, Agent
+from .models import Agent
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 

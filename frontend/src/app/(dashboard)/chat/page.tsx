@@ -6,12 +6,8 @@ import {
   MessageSquare,
   Send,
   Paperclip,
-  Mic,
-  MicOff,
-  Bot,
   User,
   MoreVertical,
-  Settings,
   Trash2,
   Copy,
   Check,
@@ -22,16 +18,7 @@ import {
   Search,
   Sparkles,
   Zap,
-  Clock,
-  ChevronDown,
-  Image,
-  FileText,
-  Code,
-  Play,
-  Pause,
-  Volume2,
   Download,
-  ExternalLink,
   Star,
   Archive,
   Pin,
@@ -42,10 +29,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import {
   Select,
   SelectContent,
@@ -66,6 +51,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '@/lib/utils';
 
 // Available agents for chat
@@ -392,21 +381,48 @@ export default function ChatPage() {
                             "prose prose-sm dark:prose-invert max-w-none",
                             message.role === 'user' && "prose-invert"
                           )}>
-                            {message.content.split('\n').map((line, i) => (
-                              <React.Fragment key={i}>
-                                {line.startsWith('```') ? (
-                                  <pre className="bg-background/50 rounded-lg p-3 my-2 overflow-x-auto">
-                                    <code>{line.replace(/```\w*/, '')}</code>
-                                  </pre>
-                                ) : line.startsWith('##') ? (
-                                  <h3 className="font-bold mt-3 mb-1">{line.replace('## ', '')}</h3>
-                                ) : line.startsWith('**') ? (
-                                  <p className="font-semibold my-1">{line.replace(/\*\*/g, '')}</p>
-                                ) : (
-                                  <p className="my-1">{line}</p>
-                                )}
-                              </React.Fragment>
-                            ))}
+                            {message.role === 'assistant' ? (
+                              <ReactMarkdown 
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  code: (props) => {
+                                    const { className, children, node: _node, ref: _ref, ...rest } = props;
+                                    const match = /language-(\w+)/.exec(className || '');
+                                    const isInline = !match && !String(children).includes('\n');
+                                    return !isInline && match ? (
+                                      <SyntaxHighlighter
+                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                        style={oneDark as any}
+                                        language={match[1]}
+                                        PreTag="div"
+                                        className="rounded-md text-sm"
+                                        {...rest}
+                                      >
+                                        {String(children).replace(/\n$/, '')}
+                                      </SyntaxHighlighter>
+                                    ) : (
+                                      <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono" {...rest}>
+                                        {children}
+                                      </code>
+                                    );
+                                  },
+                                  h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-4 first:mt-0">{children}</h1>,
+                                  h2: ({ children }) => <h2 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                                  h3: ({ children }) => <h3 className="text-sm font-bold mb-1 mt-2 first:mt-0">{children}</h3>,
+                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                  ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                                  ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                                  li: ({ children }) => <li className="ml-4">{children}</li>,
+                                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                                  em: ({ children }) => <em className="italic">{children}</em>,
+                                  blockquote: ({ children }) => <blockquote className="border-l-4 border-muted-foreground/30 pl-4 italic my-2">{children}</blockquote>
+                                }}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
+                            ) : (
+                              <p className="whitespace-pre-wrap">{message.content}</p>
+                            )}
                           </div>
                         </div>
                         <div className={cn(

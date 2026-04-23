@@ -1,38 +1,25 @@
 "use client";
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Brain,
   Plus,
   Search,
   MoreVertical,
-  Play,
-  Pause,
-  Eye,
   Trash2,
   Settings,
-  RefreshCw,
-  CheckCircle2,
-  XCircle,
   Clock,
-  Cpu,
   Zap,
   Activity,
-  Bot,
   Sparkles,
   Target,
-  Layers,
   GitCompare,
   BarChart3,
   TrendingUp,
   MessageSquare,
-  FileText,
-  Code,
   Image,
   Mic,
-  Video,
-  Globe,
   Shield,
   Scale,
   Gauge,
@@ -44,8 +31,6 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
@@ -174,7 +159,7 @@ const benchmarks = [
 export default function IntelligencePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModelDialog, setShowAddModelDialog] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<typeof models[0] | null>(null);
+  const [ , setSelectedModel] = useState<typeof models[0] | null>(null);
 
   const stats = [
     { label: 'Active Models', value: models.filter(m => m.status === 'active').length, icon: Brain, color: 'text-primary' },

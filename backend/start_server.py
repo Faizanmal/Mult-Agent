@@ -4,7 +4,6 @@ Django server startup script with WebSocket debugging
 """
 
 import os
-import sys
 import django
 from django.core.management import execute_from_command_line
 
@@ -25,9 +24,8 @@ def start_django_server():
     # Check if we can import WebSocket components
     try:
         from agents.routing import websocket_urlpatterns
-        from agents.simple_consumer import SimpleSessionConsumer
         print(f"✅ WebSocket routing loaded: {len(websocket_urlpatterns)} patterns")
-        print(f"✅ SimpleSessionConsumer imported successfully")
+        print("✅ SimpleSessionConsumer imported successfully")
     except ImportError as e:
         print(f"❌ Failed to import WebSocket components: {e}")
         

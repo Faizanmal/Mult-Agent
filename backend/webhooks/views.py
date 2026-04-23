@@ -2,8 +2,8 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
-from django.db.models import Count, Q, Avg
-from .models import WebhookEndpoint, WebhookDelivery, NotificationChannel, WebhookNotification, EventLog
+from django.db.models import Count
+from .models import WebhookEndpoint, NotificationChannel, WebhookNotification, EventLog
 from .serializers import (
     WebhookEndpointSerializer, WebhookDeliverySerializer, NotificationChannelSerializer,
     WebhookNotificationSerializer, EventLogSerializer

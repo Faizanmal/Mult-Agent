@@ -1,9 +1,9 @@
 import numpy as np
-from datetime import datetime, timedelta
-from django.db.models import Avg, Sum, Count, Q
+from datetime import timedelta
+from django.db.models import Avg, Sum
 from django.utils import timezone
 from typing import Dict, List, Any
-from .models import PerformanceMetric, CostAnalysis, WorkflowOptimization, AnomalyDetection
+from .models import PerformanceMetric, CostAnalysis
 
 
 class AnalyticsService:

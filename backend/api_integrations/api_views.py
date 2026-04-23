@@ -3,9 +3,7 @@ API endpoints for frontend integration
 """
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from rest_framework import status
-from datetime import datetime, timedelta
-import json
+from datetime import datetime
 
 @api_view(['GET'])
 def integrations_list(request):

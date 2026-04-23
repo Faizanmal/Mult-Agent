@@ -10,15 +10,11 @@ import {
   Palette,
   Key,
   Globe,
-  Database,
   CreditCard,
   Building2,
-  Mail,
-  Lock,
   Eye,
   EyeOff,
   Save,
-  RefreshCw,
   Trash2,
   Plus,
   Copy,
@@ -27,7 +23,6 @@ import {
   Sun,
   Monitor,
   Zap,
-  Clock,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -37,7 +32,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import {

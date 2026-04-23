@@ -1,10 +1,9 @@
 # agents/services/agent_selector.py
 
-import json
 import logging
 from typing import Dict, List, Optional, Tuple
-from django.db.models import Q, Avg
-from ..models import Agent, AgentType, AgentStatus, Task
+from django.db.models import Q
+from ..models import Agent, AgentType, AgentStatus
 from .performance_tracker import PerformanceTracker
 
 logger = logging.getLogger(__name__)

@@ -1,20 +1,17 @@
 # agents/services/multimodal_processor.py
 
 import io
-import json
 import logging
 import asyncio
 import tempfile
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Union
 from pathlib import Path
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import speech_recognition as sr
-from gtts import gTTS
 import pytesseract
 from django.core.files.uploadedfile import UploadedFile
-from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +24,7 @@ class MultiModalProcessor:
     def __init__(self):
         # Default device until torch is imported in _initialize_models
         self.device = 'cpu'
-        logger.info(f"MultiModalProcessor initialized (device unknown until models are loaded)")
+        logger.info("MultiModalProcessor initialized (device unknown until models are loaded)")
 
         # Initialize AI models lazily (imports heavy libs inside this method)
         self._initialize_models()

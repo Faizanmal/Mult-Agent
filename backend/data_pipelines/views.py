@@ -1,13 +1,13 @@
-from rest_framework import generics, status
+from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 
-from .models import DataPipeline, DataSource, DataQualityRule, PipelineExecution
+from .models import DataPipeline, DataSource, DataQualityRule
 from .serializers import (
     DataPipelineSerializer, DataSourceSerializer,
-    DataQualityRuleSerializer, PipelineExecutionSerializer
+    DataQualityRuleSerializer
 )
 
 
@@ -36,7 +36,7 @@ class DataPipelineDetailView(generics.RetrieveUpdateDestroyAPIView):
 @permission_classes([IsAuthenticated])
 def execute_pipeline_view(request, pk):
     """Execute data pipeline"""
-    pipeline = get_object_or_404(DataPipeline, pk=pk, user=request.user)
+    get_object_or_404(DataPipeline, pk=pk, user=request.user)
     
     # Implementation for pipeline execution would go here
     return Response({
@@ -50,7 +50,7 @@ def execute_pipeline_view(request, pk):
 @permission_classes([IsAuthenticated])
 def pipeline_status_view(request, pk):
     """Get pipeline execution status"""
-    pipeline = get_object_or_404(DataPipeline, pk=pk, user=request.user)
+    get_object_or_404(DataPipeline, pk=pk, user=request.user)
     
     return Response({
         'status': 'completed',
@@ -64,7 +64,7 @@ def pipeline_status_view(request, pk):
 @permission_classes([IsAuthenticated])
 def stop_pipeline_view(request, pk):
     """Stop pipeline execution"""
-    pipeline = get_object_or_404(DataPipeline, pk=pk, user=request.user)
+    get_object_or_404(DataPipeline, pk=pk, user=request.user)
     
     return Response({
         'status': 'stopped',
@@ -97,7 +97,7 @@ class DataSourceDetailView(generics.RetrieveUpdateDestroyAPIView):
 @permission_classes([IsAuthenticated])
 def test_data_source_view(request, pk):
     """Test data source connection"""
-    source = get_object_or_404(DataSource, pk=pk, user=request.user)
+    get_object_or_404(DataSource, pk=pk, user=request.user)
     
     return Response({
         'success': True,

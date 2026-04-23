@@ -4,11 +4,8 @@ Agent Learning Service - Reinforcement Learning for Agent Self-Improvement
 
 import logging
 import numpy as np
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from collections import deque
-import json
-from django.utils import timezone
-from django.db import transaction
 
 logger = logging.getLogger(__name__)
 

@@ -5,8 +5,6 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
 from .models import Agent, Session, Message
-from .services.agent_coordinator import AgentCoordinator
-from .services.groq_service import GroqService
 
 # Get the custom user model
 User = get_user_model()
@@ -168,7 +166,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
         print(f"DEBUG: Message broadcasted to group: {self.session_group_name}")
         
         # Process with agents (async)
-        print(f"DEBUG: About to call process_with_agents")
+        print("DEBUG: About to call process_with_agents")
         try:
             result = await self.process_with_agents(session, message_id, content, self.session_group_name)
             print(f"DEBUG: process_with_agents completed successfully with result: {result}")
@@ -193,8 +191,6 @@ class SessionConsumer(AsyncWebsocketConsumer):
     
     async def handle_stream_request(self, data):
         """Handle streaming request"""
-        messages = data.get('messages', [])
-        model = data.get('model', 'llama-3.3-70b-versatile')
         
         # Start streaming response
         await self.send(text_data=json.dumps({
@@ -469,7 +465,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
     async def process_with_agents(self, session_data, message_id, message_content, group_name):
         """Process message with agents using GroqService for better performance"""
         try:
-            print(f"DEBUG: Inside process_with_agents method")
+            print("DEBUG: Inside process_with_agents method")
             print(f"DEBUG: Processing with agents for session: {session_data['name']}")
             print(f"DEBUG: Session agents count: {session_data['agents_count']}")
             print(f"DEBUG: Message content: {message_content}")
@@ -495,13 +491,46 @@ class SessionConsumer(AsyncWebsocketConsumer):
             try:
                 # Build conversation context
                 messages_history = [
-                    {"role": "system", "content": f"You are {agent_name}, a helpful AI assistant in a multi-agent system. Provide detailed, informative responses."},
+                    {"role": "system", "content": f"""You are {agent_name}, a helpful AI assistant in a multi-agent system.
+
+CRITICAL FORMATTING REQUIREMENTS:
+- You MUST format ALL responses using proper Markdown syntax
+- Use headers: ## Header for sections
+- Use **bold text** for emphasis
+- Use bullet points: - Item for lists
+- Use numbered lists: 1. Item for steps
+- Use `inline code` for code references
+- Use ```language code blocks for code examples
+- Structure your response with clear sections and formatting
+
+EXAMPLE FORMAT:
+## Introduction
+Hello, I'm **Master Orchestrator**, your AI assistant.
+
+## What I Can Help With
+- **General Questions**: Answering various topics
+- **Code Support**: Helping with programming
+- **Problem Solving**: Providing solutions
+
+## Getting Started
+To begin, simply ask me a question!
+
+```python
+print("Hello, World!")
+```
+
+Please format ALL your responses this way. Never use plain text paragraphs."""},
                     {"role": "user", "content": message_content}
                 ]
+                
+                print(f"DEBUG: System prompt: {messages_history[0]['content']}")
+                print(f"DEBUG: User message: {message_content}")
                 
                 # Get response from Groq service (non-blocking call)
                 groq_service = GroqService()
                 groq_response = groq_service.chat_completion(messages_history)
+                
+                print(f"DEBUG: Groq response: {groq_response}")
                 
                 # Handle response safely
                 if groq_response and isinstance(groq_response, dict):
@@ -509,8 +538,9 @@ class SessionConsumer(AsyncWebsocketConsumer):
                 else:
                     response_content = 'I apologize, but I encountered an issue processing your request.'
                 
-                if response_content:
-                    print(f"DEBUG: Final response content: {response_content[:100]}...")
+                print(f"DEBUG: Response content: {response_content}")
+                print(f"DEBUG: Response content type: {type(response_content)}")
+                print(f"DEBUG: Response content length: {len(response_content) if response_content else 0}")
                 
             except Exception as e:
                 print(f"ERROR in Groq service: {e}")
@@ -538,7 +568,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
                 }
             )
             
-            print(f"DEBUG: Agent response sent successfully")
+            print("DEBUG: Agent response sent successfully")
             return {"status": "processed", "agent": agent_name}
             
         except Exception as e:
@@ -673,7 +703,6 @@ class UserConsumer(AsyncWebsocketConsumer):
     
     async def receive(self, text_data):
         try:
-            data = json.loads(text_data)
             # Handle user-specific commands if needed
             pass
         except json.JSONDecodeError:
@@ -734,7 +763,6 @@ class AgentConsumer(AsyncWebsocketConsumer):
     
     async def receive(self, text_data):
         try:
-            data = json.loads(text_data)
             # Handle agent-specific commands
             pass
         except json.JSONDecodeError:

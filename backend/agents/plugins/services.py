@@ -1,6 +1,5 @@
 import logging
 from typing import Dict, Any, Optional
-from django.conf import settings
 from . import models
 from .registry import plugin_registry
 

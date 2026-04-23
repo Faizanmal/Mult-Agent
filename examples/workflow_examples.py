@@ -4,7 +4,6 @@ This script shows how to use workflows to solve real-world problems
 """
 
 import requests
-import json
 import time
 from typing import Dict, Any
 
@@ -289,7 +288,7 @@ def example_7_list_templates():
     detail = client.get_template_detail('data_analysis_pipeline')
     
     print(f"\nTemplate: {detail['name']}")
-    print(f"Steps in workflow:")
+    print("Steps in workflow:")
     for step in detail['steps']:
         print(f"  {step['id']}: {step['name']}")
         print(f"    - Agent Type: {step['agent_type']}")

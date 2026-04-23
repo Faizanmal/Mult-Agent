@@ -5,7 +5,6 @@ Simple WebSocket Consumer for testing connections
 import json
 import uuid
 from channels.generic.websocket import AsyncWebsocketConsumer
-from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
 from datetime import datetime
 
@@ -70,7 +69,7 @@ class SimpleSessionConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({
                     'type': 'pong'
                 }))
-                print(f"DEBUG: Sent pong response")
+                print("DEBUG: Sent pong response")
             else:
                 await self.send_error(f'Unknown message type: {message_type}')
                 
@@ -83,7 +82,6 @@ class SimpleSessionConsumer(AsyncWebsocketConsumer):
     async def handle_chat_message(self, data):
         """Handle incoming chat message"""
         content = data.get('content', '')
-        user_id = data.get('user_id')
         message_type = data.get('message_type', 'text')
         
         print(f"DEBUG: Processing chat message: '{content}'")

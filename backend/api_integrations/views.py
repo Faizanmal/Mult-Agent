@@ -1,4 +1,4 @@
-from rest_framework import generics, status
+from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -53,7 +53,7 @@ class APIIntegrationDetailView(generics.RetrieveUpdateDestroyAPIView):
 @permission_classes([IsAuthenticated])
 def test_integration_view(request, pk):
     """Test API integration connection"""
-    integration = get_object_or_404(APIIntegration, pk=pk, user=request.user)
+    get_object_or_404(APIIntegration, pk=pk, user=request.user)
     
     # Implementation for testing integration would go here
     return Response({
@@ -68,7 +68,7 @@ def test_integration_view(request, pk):
 @permission_classes([IsAuthenticated])
 def execute_integration_view(request, pk):
     """Execute API integration"""
-    integration = get_object_or_404(APIIntegration, pk=pk, user=request.user)
+    get_object_or_404(APIIntegration, pk=pk, user=request.user)
     
     # Implementation for executing integration would go here
     return Response({

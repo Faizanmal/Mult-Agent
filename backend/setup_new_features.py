@@ -6,12 +6,11 @@ and run database migrations.
 
 import os
 import django
+from django.core.management import call_command
 
 # Setup Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
-
-from django.core.management import call_command
 
 print("=" * 80)
 print("SETTING UP NEW FEATURE MODULES")

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   GitBranch,
   Plus,
@@ -9,22 +9,18 @@ import {
   Play,
   Pause,
   MoreVertical,
-  Clock,
   CheckCircle2,
   XCircle,
   AlertCircle,
   Database,
   ArrowRight,
   RefreshCw,
-  Settings,
   Trash2,
   Copy,
   FileJson,
-  FileSpreadsheet,
   Cloud,
   Server,
   Zap,
-  Timer,
   Activity,
   TrendingUp,
   Layers,
@@ -40,8 +36,6 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Switch } from '@/components/ui/switch';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import {

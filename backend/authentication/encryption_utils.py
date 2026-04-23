@@ -4,7 +4,6 @@ Encryption utilities for securing sensitive data
 from cryptography.fernet import Fernet
 from django.conf import settings
 import base64
-import os
 
 
 class EncryptionUtil:

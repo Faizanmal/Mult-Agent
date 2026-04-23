@@ -15,7 +15,6 @@ import {
   User,
   LogOut,
   HelpCircle,
-  Sparkles,
   ChevronDown,
   Command,
   Zap,
@@ -47,7 +46,7 @@ interface TopbarProps {
 export function Topbar({ sidebarCollapsed = false, onMenuClick }: TopbarProps) {
   const pathname = usePathname();
   const { isDark, toggleTheme } = useTheme();
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [ , setSearchOpen] = useState(false);
 
   // Get page title from pathname
   const getPageTitle = () => {

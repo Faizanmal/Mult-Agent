@@ -4,7 +4,7 @@ Real-world workflow templates for common business and development tasks.
 These templates define multi-agent coordination for solving actual problems.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional
 from enum import Enum
 
 

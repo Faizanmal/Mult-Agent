@@ -2,14 +2,11 @@
 Plugin Service
 Manages plugin lifecycle, execution, and marketplace operations
 """
-import importlib.util
-import sys
 import traceback
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Tuple
 from django.utils import timezone
-from django.db.models import Q, Avg, Count, Sum
+from django.db.models import Q, Avg, Sum
 from django.core.exceptions import ValidationError
-import json
 
 from ..plugin_models import (
     AgentPlugin, PluginInstallation, PluginReview, PluginDependency,

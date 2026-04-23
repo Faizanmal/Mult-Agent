@@ -8,7 +8,6 @@ from rest_framework import status
 import time
 import hashlib
 import logging
-from datetime import datetime, timedelta
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)

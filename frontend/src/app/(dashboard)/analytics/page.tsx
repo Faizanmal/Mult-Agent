@@ -5,9 +5,7 @@ import { motion } from 'framer-motion';
 import {
   BarChart3,
   TrendingUp,
-  TrendingDown,
   DollarSign,
-  Clock,
   Activity,
   Zap,
   Bot,
@@ -16,21 +14,15 @@ import {
   RefreshCw,
   Download,
   Calendar,
-  Filter,
-  ChevronDown,
   AlertTriangle,
   CheckCircle2,
-  XCircle,
   Sparkles,
-  PieChart,
-  LineChart,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -53,7 +45,6 @@ import {
   PieChart as RechartsPieChart,
   Pie,
   Cell,
-  Legend,
 } from 'recharts';
 import { cn } from '@/lib/utils';
 

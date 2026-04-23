@@ -10,7 +10,6 @@ from azure.cosmos.container import Container
 from azure.cosmos.database import Database
 from django.conf import settings
 import os
-import json
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

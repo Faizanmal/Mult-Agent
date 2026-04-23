@@ -18,9 +18,17 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from agents import health_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    
+    # Health check endpoints (top-level for easy access)
+    path('health/', health_views.health_check, name='health_check'),
+    path('health/status/', health_views.system_status, name='system_status'),
+    path('health/ready/', health_views.readiness_check, name='readiness'),
+    path('health/live/', health_views.liveness_check, name='liveness'),
+    
     path('agents/', include('agents.urls')),
     path('mcp/', include('Mcp_Integration.urls')),
     path('models/', include('models.urls')),

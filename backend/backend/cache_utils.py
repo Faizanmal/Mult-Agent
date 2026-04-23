@@ -3,9 +3,7 @@ Advanced caching decorators and utilities
 """
 from functools import wraps
 from django.core.cache import cache
-from django.conf import settings
 import hashlib
-import json
 import logging
 from typing import Any, Callable, Optional
 

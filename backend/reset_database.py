@@ -6,13 +6,12 @@ Fixes foreign key constraint issues by rebuilding the database
 import os
 import django
 import sys
+from django.contrib.auth import get_user_model
+from agents.models import Agent, Session, Message, AgentType, AgentStatus
 
 # Setup Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
-
-from django.contrib.auth import get_user_model
-from agents.models import Agent, Session, Message, AgentType, AgentStatus
 
 User = get_user_model()
 
@@ -135,7 +134,7 @@ def reset_database():
     print("DATABASE RESET COMPLETE!")
     print("=" * 60)
     print(f"\nDefault User Email: {default_user.email}")
-    print(f"Default User Password: default123")
+    print("Default User Password: default123")
     print(f"Agents Created: {len(created_agents)}")
     print(f"Sample Session ID: {session.id}")
     print("\nYou can now start the server and test the application.")

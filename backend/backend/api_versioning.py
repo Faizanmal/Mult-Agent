@@ -6,14 +6,12 @@ Supports:
 - Backward compatibility
 - Version negotiation
 """
-from rest_framework.versioning import URLPathVersioning, NamespaceVersioning
+from rest_framework.versioning import URLPathVersioning
 from rest_framework.response import Response
 from rest_framework import status
-from django.http import HttpResponse
 from functools import wraps
 import logging
-from datetime import datetime, timedelta
-import warnings
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 

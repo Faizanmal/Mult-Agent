@@ -1,12 +1,11 @@
 # agents/services/performance_tracker.py
 
-import json
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-from django.db.models import Avg, Count, Q
+from typing import Dict, List
+from django.db.models import Avg, Q
 from django.utils import timezone
-from ..models import Agent, Task, TaskExecution
+from ..models import Agent, TaskExecution
 from agents import models
 
 logger = logging.getLogger(__name__)

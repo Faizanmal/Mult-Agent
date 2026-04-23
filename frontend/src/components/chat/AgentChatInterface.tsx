@@ -23,6 +23,8 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
 import useWebSocket from 'react-use-websocket';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useAgent } from '@/contexts/AgentContext';
 
 interface Message {
@@ -95,15 +97,28 @@ export default function AgentChatInterface() {
         console.log('Received WebSocket message:', data);
         
         if (data.type === 'agent_response') {
+          // Decode HTML entities in the content
+          const decodeHtmlEntities = (text: string) => {
+            const textarea = document.createElement('textarea');
+            textarea.innerHTML = text;
+            return textarea.value;
+          };
+          
+          const rawContent = typeof data.response.content === 'string' ? decodeHtmlEntities(data.response.content) : String(data.response.content);
+          console.log('Raw message content:', rawContent);
+          console.log('Message contains markdown:', rawContent.includes('##') || rawContent.includes('**') || rawContent.includes('```') || rawContent.includes('- '));
+          
           const agentMessage: Message = {
             id: (Date.now() + Math.random()).toString(),
-            content: data.response.content,
+            content: rawContent,
             sender: 'agent',
             agentName: data.response.orchestrator || 'Agent',
             timestamp: new Date(data.timestamp || Date.now()),
             type: 'text',
             status: 'completed'
           };
+          
+          console.log('Created agent message:', agentMessage);
           setMessages(prev => [...prev, agentMessage]);
           setIsLoading(false);
         } else if (data.type === 'error') {
@@ -395,7 +410,19 @@ export default function AgentChatInterface() {
                         </span>
                       </div>
                     )}
-                    <p className="text-sm">{message.content}</p>
+                    {message.sender === 'agent' ? (
+                      <div>
+                        <ReactMarkdown 
+                          key={message.id}
+                          className="text-sm prose prose-sm max-w-none dark:prose-invert"
+                          remarkPlugins={[remarkGfm]}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="text-sm">{message.content}</p>
+                    )}
                     <p className="text-xs mt-1 opacity-70">
                       {message.timestamp.toLocaleTimeString()}
                     </p>

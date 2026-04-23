@@ -9,35 +9,27 @@ import {
   List,
   Star,
   Download,
-  ExternalLink,
   Settings,
   Trash2,
   CheckCircle2,
-  Clock,
-  Users,
   Shield,
-  Zap,
   Database,
   MessageSquare,
   BarChart3,
   Globe,
-  Code,
   GitBranch,
   Bot,
   Image,
-  FileText,
   Mail,
   Sparkles,
-  TrendingUp,
   Filter,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Select,
   SelectContent,
@@ -51,11 +43,9 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 

@@ -1,11 +1,11 @@
-from rest_framework import generics, status
+from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 
-from .models import Report, ReportTemplate, Dashboard, Widget
-from .serializers import ReportSerializer, ReportTemplateSerializer, DashboardSerializer, WidgetSerializer
+from .models import Report, ReportTemplate, Widget
+from .serializers import ReportSerializer, ReportTemplateSerializer, WidgetSerializer
 
 
 class ReportListCreateView(generics.ListCreateAPIView):
@@ -33,7 +33,7 @@ class ReportDetailView(generics.RetrieveUpdateDestroyAPIView):
 @permission_classes([IsAuthenticated])
 def generate_report_view(request, pk):
     """Generate report"""
-    report = get_object_or_404(Report, pk=pk, user=request.user)
+    get_object_or_404(Report, pk=pk, user=request.user)
     
     # Implementation for report generation would go here
     return Response({
@@ -46,7 +46,7 @@ def generate_report_view(request, pk):
 @permission_classes([IsAuthenticated])
 def export_report_view(request, pk):
     """Export report"""
-    report = get_object_or_404(Report, pk=pk, user=request.user)
+    get_object_or_404(Report, pk=pk, user=request.user)
     
     # Implementation for report export would go here
     return Response({
@@ -70,7 +70,6 @@ def dashboard_view(request):
     from Multi_model_Intelligence.models import ModelExecution
     from django.utils import timezone
     from datetime import timedelta
-    from django.db.models import Count, Avg, Sum
     
     user = request.user
     today = timezone.now().date()

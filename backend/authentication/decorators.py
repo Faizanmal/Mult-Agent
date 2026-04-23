@@ -5,7 +5,6 @@ from functools import wraps
 from django.core.cache import cache
 from django.http import JsonResponse
 from rest_framework import status
-from django.conf import settings
 
 
 def rate_limit_password_reset(max_attempts=3, window_minutes=60):

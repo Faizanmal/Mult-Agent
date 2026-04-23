@@ -1,10 +1,9 @@
-import json
 import logging
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 from django.conf import settings
@@ -13,7 +12,7 @@ from .. import models
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..models import Agent, Session, Task, Message, TaskStatus, AgentStatus
+    from ..models import Agent, Message
 from .groq_service import GroqService
 from .enhanced_agent_coordinator import EnhancedAgentCoordinator
 
@@ -24,7 +23,6 @@ logger = logging.getLogger(__name__)
 def send_message_to_agent(agent_id: str, content: str, task_id: Optional[str] = None) -> Dict[str, Any]:
     """Send a message to another agent in the system"""
     try:
-        from ..models import Agent
         # In a real implementation, this would send an actual message to the agent
         # For now, we'll just return a success response
         return {
@@ -40,7 +38,6 @@ def send_message_to_agent(agent_id: str, content: str, task_id: Optional[str] = 
 def get_agent_status(agent_id: str) -> Dict[str, Any]:
     """Get the current status and capabilities of an agent"""
     try:
-        from ..models import Agent
         try:
             from .. import models as agent_models
             agent = agent_models.Agent.objects.get(id=agent_id)
@@ -328,7 +325,7 @@ class LangchainAgentCoordinator:
                 "input": input_text,
                 "chat_history": conversation_history
             })
-            logger.info(f"Langchain orchestration completed successfully")
+            logger.info("Langchain orchestration completed successfully")
             
             return {
                 "content": result["output"],

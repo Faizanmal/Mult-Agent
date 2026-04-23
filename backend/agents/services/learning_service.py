@@ -7,11 +7,10 @@ import random
 import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
 from django.utils import timezone
-from django.db.models import Avg, Count, Q
-from datetime import datetime, timedelta
+from django.db.models import Q
 import json
 
-from ..models import Agent, Session, Task
+from ..models import Agent, Session
 from ..learning_models import (
     AgentLearningProfile, AgentExperience, AdaptiveCoordinationRule,
     AgentSkillEvolution, LearningSession, LearningStrategy
@@ -205,7 +204,6 @@ class AgentLearningService:
             {'batch_size': batch_size, 'epochs': epochs}
         )
         
-        total_loss = 0.0
         experiences_processed = 0
         
         for epoch in range(epochs):
@@ -315,7 +313,6 @@ class AdaptiveCoordinationService:
     @staticmethod
     def analyze_patterns_and_generate_rules(creator, min_samples: int = 50):
         """Analyze historical data and generate new coordination rules"""
-        from django.db.models import Avg, Count
         
         # Analyze successful coordination sessions
         # This would integrate with your coordination session data

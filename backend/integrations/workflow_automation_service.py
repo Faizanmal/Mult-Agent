@@ -95,9 +95,6 @@ class ZapierService:
         
         # Store subscription in database
         from webhooks.models import Webhook
-        from django.contrib.auth import get_user_model
-        
-        User = get_user_model()
         
         try:
             # Create webhook for Zapier integration
@@ -160,7 +157,7 @@ class MakeService:
             
             response.raise_for_status()
             
-            logger.info(f"Make scenario triggered successfully")
+            logger.info("Make scenario triggered successfully")
             
             return {
                 'success': True,

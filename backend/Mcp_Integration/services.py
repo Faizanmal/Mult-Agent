@@ -1,12 +1,8 @@
 # MCP Integration Services
 
-import asyncio
-import json
 import time
 from typing import Dict, List, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from django.conf import settings
-from agents.models import Agent
 
 
 class MCPToolRegistry:

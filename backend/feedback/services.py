@@ -4,7 +4,7 @@ Process and analyze user feedback for continuous improvement
 """
 
 import logging
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count
 from django.utils import timezone
 from datetime import timedelta
 

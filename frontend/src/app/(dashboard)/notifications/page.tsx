@@ -8,45 +8,30 @@ import {
   CheckCheck,
   Trash2,
   Settings,
-  Filter,
   Search,
   MoreVertical,
-  Clock,
   AlertCircle,
   CheckCircle2,
   Info,
   AlertTriangle,
   Bot,
-  Zap,
   GitBranch,
   Shield,
   CreditCard,
-  Users,
-  Sparkles,
   Archive,
   Star,
   StarOff,
   Volume2,
-  VolumeX,
   ExternalLink,
-  ChevronDown,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -162,9 +147,8 @@ const notificationPreferences = [
 
 export default function NotificationsPage() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [filter, ] = useState('all');
   const [notificationList, setNotificationList] = useState(notifications);
-  const [selectedNotifications, setSelectedNotifications] = useState<string[]>([]);
 
   const unreadCount = notificationList.filter(n => !n.read).length;
   const starredCount = notificationList.filter(n => n.starred).length;
@@ -386,7 +370,7 @@ export default function NotificationsPage() {
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                       <Bell className="h-12 w-12 text-muted-foreground mb-4" />
                       <h3 className="font-semibold">No notifications</h3>
-                      <p className="text-sm text-muted-foreground">You're all caught up!</p>
+                      <p className="text-sm text-muted-foreground">You&apos;re all caught up!</p>
                     </div>
                   )}
                 </div>

@@ -5,9 +5,8 @@ Manages webhook delivery and notification dispatch
 import requests
 import json
 import time
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional
 from django.utils import timezone
-from django.db import transaction
 from datetime import timedelta
 import logging
 

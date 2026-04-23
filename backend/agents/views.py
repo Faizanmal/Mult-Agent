@@ -7,23 +7,16 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 from django.utils import timezone
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import json
-import asyncio
 from datetime import datetime, timedelta
-
-# Get the custom user model
-User = get_user_model()
 
 from .models import (
     Agent, Session, Task, Message, AgentMemory, 
     PerformanceMetric, AgentStatus, TaskStatus,
-    WorkflowTemplate, TaskExecution, AgentSkill
+    WorkflowTemplate
 )
 from .serializers import (
     AgentSerializer, SessionSerializer, TaskSerializer,
@@ -36,6 +29,9 @@ from .services.performance_tracker import PerformanceTracker
 from .services.workflow_engine import WorkflowEngine
 from .services.multimodal_processor import MultiModalProcessor
 from .services.analytics_dashboard import AnalyticsDashboard
+
+# Get the custom user model
+User = get_user_model()
 
 class AgentViewSet(viewsets.ModelViewSet):
     serializer_class = AgentSerializer
@@ -567,7 +563,7 @@ class GroqIntegrationView(viewsets.ViewSet):
         session_id = request.data.get('session_id')
         
         try:
-            session = Session.objects.get(id=session_id, user=request.user)
+            Session.objects.get(id=session_id, user=request.user)
         except Session.DoesNotExist:
             return Response({'error': 'Session not found'}, status=status.HTTP_404_NOT_FOUND)
         
@@ -584,7 +580,7 @@ class GroqIntegrationView(viewsets.ViewSet):
         )
         
         # This would be handled asynchronously in a real implementation
-        response = groq_service.stream_completion(messages, session_id)
+        groq_service.stream_completion(messages, session_id)
         
         return Response({'status': 'Stream started'})
 

@@ -9,7 +9,6 @@ from django.core.validators import URLValidator
 import uuid
 import hashlib
 import hmac
-from decimal import Decimal
 
 User = get_user_model()
 

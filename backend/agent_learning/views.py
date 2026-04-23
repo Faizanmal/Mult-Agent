@@ -198,7 +198,6 @@ class AdaptiveStrategyViewSet(viewsets.ModelViewSet):
         try:
             success = request.data.get('success', False)
             completion_time = request.data.get('completion_time', 0.0)
-            session_id = request.data.get('session_id')
             
             # Update usage stats
             strategy.times_used += 1

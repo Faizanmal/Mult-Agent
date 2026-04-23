@@ -33,14 +33,14 @@ export function AppLayout({ children }: AppLayoutProps) {
     window.addEventListener('storage', handleStorageChange);
     
     // Custom event for same-tab updates
-    const handleSidebarToggle = (e: CustomEvent) => {
-      setSidebarCollapsed(e.detail);
+    const handleSidebarToggle = (e: Event) => {
+      setSidebarCollapsed((e as CustomEvent).detail);
     };
-    window.addEventListener('sidebar-toggle' as any, handleSidebarToggle);
+    window.addEventListener('sidebar-toggle', handleSidebarToggle);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('sidebar-toggle' as any, handleSidebarToggle);
+      window.removeEventListener('sidebar-toggle', handleSidebarToggle);
     };
   }, []);
 
