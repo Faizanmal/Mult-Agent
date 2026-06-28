@@ -15,9 +15,11 @@ logger = logging.getLogger(__name__)
 
 class ModelProvider(Enum):
     """Supported model providers"""
+    NVIDIA = "nvidia"
     GROQ = "groq"
-    OPENAI = "openai"
+    GOOGLE = "google"
     ANTHROPIC = "anthropic"
+    OPENAI = "openai"
     
 
 class TaskComplexity(Enum):
@@ -33,6 +35,37 @@ class ModelConfig:
     
     # Model capabilities and cost tiers
     MODELS = {
+        # NVIDIA models - high-performance inference
+        ModelProvider.NVIDIA: {
+            "llama-3.1-70b-instruct": {
+                "complexity": [TaskComplexity.SIMPLE, TaskComplexity.MODERATE, TaskComplexity.COMPLEX],
+                "speed": "ultra_fast",
+                "cost": "medium",
+                "context_window": 32768,
+                "strengths": ["speed", "reasoning", "general_purpose"]
+            },
+            "llama-3.1-8b-instruct": {
+                "complexity": [TaskComplexity.SIMPLE, TaskComplexity.MODERATE],
+                "speed": "ultra_fast",
+                "cost": "low",
+                "context_window": 16384,
+                "strengths": ["speed", "cost_effective"]
+            },
+            "mixtral-8x7b-instruct": {
+                "complexity": [TaskComplexity.MODERATE, TaskComplexity.COMPLEX],
+                "speed": "fast",
+                "cost": "medium",
+                "context_window": 32768,
+                "strengths": ["multilingual", "reasoning"]
+            },
+            "minimaxai/minimax-m2.7": {
+                "complexity": [TaskComplexity.SIMPLE, TaskComplexity.MODERATE, TaskComplexity.COMPLEX, TaskComplexity.CREATIVE],
+                "speed": "fast",
+                "cost": "medium",
+                "context_window": 8192,
+                "strengths": ["creative", "versatile", "long_context_generation"]
+            }
+        },
         # Groq models - ultra-fast inference
         ModelProvider.GROQ: {
             "llama-3.3-70b-versatile": {
@@ -55,6 +88,30 @@ class ModelConfig:
                 "cost": "low",
                 "context_window": 32768,
                 "strengths": ["multilingual", "reasoning"]
+            }
+        },
+        # Google models - advanced multimodal
+        ModelProvider.GOOGLE: {
+            "gemini-1.5-pro": {
+                "complexity": [TaskComplexity.COMPLEX, TaskComplexity.CREATIVE],
+                "speed": "medium",
+                "cost": "high",
+                "context_window": 1048576,
+                "strengths": ["multimodal", "long_context", "reasoning"]
+            },
+            "gemini-1.5-flash": {
+                "complexity": [TaskComplexity.SIMPLE, TaskComplexity.MODERATE, TaskComplexity.COMPLEX],
+                "speed": "fast",
+                "cost": "medium",
+                "context_window": 1048576,
+                "strengths": ["speed", "multimodal", "long_context"]
+            },
+            "gemini-1.0-pro": {
+                "complexity": [TaskComplexity.MODERATE, TaskComplexity.COMPLEX],
+                "speed": "medium",
+                "cost": "medium",
+                "context_window": 32768,
+                "strengths": ["reasoning", "multimodal"]
             }
         },
         # OpenAI models - balanced quality
@@ -119,6 +176,17 @@ class MultiModelOrchestrator:
         
     def _init_clients(self):
         """Initialize API clients for all providers"""
+        # NVIDIA client (using OpenAI-compatible API)
+        try:
+            from openai import OpenAI
+            self.nvidia_client = OpenAI(
+                base_url="https://integrate.api.nvidia.com/v1",
+                api_key=settings.NVIDIA_API_KEY or os.getenv('NVIDIA_API_KEY')
+            )
+        except Exception as e:
+            logger.warning(f"NVIDIA client initialization failed: {e}")
+            self.nvidia_client = None
+        
         # Groq client
         try:
             from groq import Groq
@@ -128,6 +196,15 @@ class MultiModelOrchestrator:
         except Exception as e:
             logger.warning(f"Groq client initialization failed: {e}")
             self.groq_client = None
+        
+        # Google client
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=settings.GOOGLE_API_KEY or os.getenv('GOOGLE_API_KEY'))
+            self.google_client = genai
+        except Exception as e:
+            logger.warning(f"Google client initialization failed: {e}")
+            self.google_client = None
         
         # OpenAI client
         try:
@@ -218,6 +295,15 @@ class MultiModelOrchestrator:
             for model_name, config in models.items():
                 if complexity in config['complexity']:
                     score = self._score_model(config, priority, constraints)
+                    # Add provider priority bonus: NVIDIA > GROQ > GOOGLE > ANTHROPIC > OPENAI
+                    provider_priority = {
+                        ModelProvider.NVIDIA: 1.0,
+                        ModelProvider.GROQ: 0.8,
+                        ModelProvider.GOOGLE: 0.6,
+                        ModelProvider.ANTHROPIC: 0.5,
+                        ModelProvider.OPENAI: 0.4
+                    }
+                    score += provider_priority.get(provider, 0.0)
                     candidates.append((score, provider, model_name, config))
         
         # Sort by score
@@ -263,6 +349,59 @@ class MultiModelOrchestrator:
             score *= 0.5
         
         return score
+    
+    def _get_provider_models_sorted(self, provider: ModelProvider, complexity: TaskComplexity, priority: str = "balanced", constraints: Dict = None) -> List[str]:
+        """Get all models for a provider sorted by preference for the given complexity"""
+        constraints = constraints or {}
+        candidates = []
+        
+        if provider not in ModelConfig.MODELS:
+            return []
+        
+        # Collect all models for this provider that match complexity
+        for model_name, config in ModelConfig.MODELS[provider].items():
+            if complexity in config['complexity']:
+                score = self._score_model(config, priority, constraints)
+                candidates.append((score, model_name))
+        
+        # Sort by score (highest first)
+        candidates.sort(reverse=True, key=lambda x: x[0])
+        
+        return [model_name for _, model_name in candidates]
+    
+    def _try_provider_models(self, provider: ModelProvider, messages: List[Dict], complexity: TaskComplexity, stream: bool, priority: str = "balanced", **kwargs) -> Dict:
+        """Try all available models for a provider in order of preference"""
+        available_models = self._get_provider_models_sorted(provider, complexity, priority, kwargs.get('constraints'))
+        
+        if not available_models:
+            raise Exception(f"No suitable models found for {provider.value} with complexity {complexity.value}")
+        
+        # Try each model for this provider
+        for model in available_models:
+            try:
+                logger.info(f"Trying {provider.value}/{model}")
+                
+                if provider == ModelProvider.NVIDIA:
+                    result = self._nvidia_completion(messages, model, stream, **kwargs)
+                elif provider == ModelProvider.GROQ:
+                    result = self._groq_completion(messages, model, stream, **kwargs)
+                elif provider == ModelProvider.GOOGLE:
+                    result = self._google_completion(messages, model, stream, **kwargs)
+                elif provider == ModelProvider.ANTHROPIC:
+                    result = self._anthropic_completion(messages, model, stream, **kwargs)
+                elif provider == ModelProvider.OPENAI:
+                    result = self._openai_completion(messages, model, stream, **kwargs)
+                else:
+                    raise ValueError(f"Unsupported provider: {provider}")
+                
+                logger.info(f"Successfully executed {provider.value}/{model}")
+                return result
+                
+            except Exception as e:
+                logger.warning(f"Model {provider.value}/{model} failed: {e}")
+                continue
+        
+        raise Exception(f"All models failed for provider {provider.value}")
     
     def chat_completion(
         self,
@@ -330,29 +469,22 @@ Please format ALL your responses this way. Never use plain text paragraphs."""
         if complexity is None:
             complexity = self.analyze_task_complexity(messages, kwargs.get('context'))
         
-        # Select model if not forced
-        if provider is None or model is None:
-            provider, model = self.select_optimal_model(complexity, priority, kwargs.get('constraints'))
+        # Select provider if not forced
+        if provider is None:
+            provider, _ = self.select_optimal_model(complexity, priority, kwargs.get('constraints'))
         
-        # Execute with selected provider
+        # Execute with selected provider, trying all its models
         try:
-            if provider == ModelProvider.GROQ:
-                result = self._groq_completion(messages, model, stream, **kwargs)
-            elif provider == ModelProvider.OPENAI:
-                result = self._openai_completion(messages, model, stream, **kwargs)
-            elif provider == ModelProvider.ANTHROPIC:
-                result = self._anthropic_completion(messages, model, stream, **kwargs)
-            else:
-                raise ValueError(f"Unsupported provider: {provider}")
+            result = self._try_provider_models(provider, messages, complexity, stream, priority, **kwargs)
             
             # Track performance
             duration = time.time() - start_time
-            self._track_performance(provider, model, complexity, duration, result)
+            self._track_performance(provider, result.get('model', 'unknown'), complexity, duration, result)
             
             # Add metadata
             result['metadata'] = {
                 'provider': provider.value,
-                'model': model,
+                'model': result.get('model', 'unknown'),
                 'complexity': complexity.value,
                 'duration': duration,
                 'priority': priority
@@ -361,8 +493,8 @@ Please format ALL your responses this way. Never use plain text paragraphs."""
             return result
             
         except Exception as e:
-            logger.error(f"Model execution failed: {e}")
-            # Attempt fallback
+            logger.error(f"Primary provider {provider.value} failed: {e}")
+            # Attempt comprehensive fallback
             return self._execute_fallback(messages, provider, complexity, stream, **kwargs)
     
     def _groq_completion(self, messages: List[Dict], model: str, stream: bool, **kwargs) -> Dict:
@@ -379,16 +511,95 @@ Please format ALL your responses this way. Never use plain text paragraphs."""
         )
         
         if stream:
-            return {'stream': response, 'provider': 'groq'}
+            return {'stream': response, 'provider': 'groq', 'model': model}
         
         return {
             'content': response.choices[0].message.content,
+            'model': model,
             'usage': {
                 'prompt_tokens': response.usage.prompt_tokens,
                 'completion_tokens': response.usage.completion_tokens,
                 'total_tokens': response.usage.total_tokens
             },
             'finish_reason': response.choices[0].finish_reason
+        }
+    
+    def _nvidia_completion(self, messages: List[Dict], model: str, stream: bool, **kwargs) -> Dict:
+        """Execute NVIDIA completion"""
+        if not self.nvidia_client:
+            raise Exception("NVIDIA client not initialized")
+        
+        response = self.nvidia_client.chat.completions.create(
+            messages=messages,
+            model=model,
+            temperature=kwargs.get('temperature', 0.7),
+            max_tokens=kwargs.get('max_tokens', 2048),
+            stream=stream
+        )
+        
+        if stream:
+            return {'stream': response, 'provider': 'nvidia', 'model': model}
+        
+        return {
+            'content': response.choices[0].message.content,
+            'model': model,
+            'usage': {
+                'prompt_tokens': response.usage.prompt_tokens,
+                'completion_tokens': response.usage.completion_tokens,
+                'total_tokens': response.usage.total_tokens
+            },
+            'finish_reason': response.choices[0].finish_reason
+        }
+    
+    def _google_completion(self, messages: List[Dict], model: str, stream: bool, **kwargs) -> Dict:
+        """Execute Google Gemini completion"""
+        if not self.google_client:
+            raise Exception("Google client not initialized")
+        
+        # Convert messages to Gemini format
+        gemini_messages = []
+        system_instruction = None
+        
+        for msg in messages:
+            if msg['role'] == 'system':
+                system_instruction = msg['content']
+            else:
+                role = 'user' if msg['role'] == 'user' else 'model'
+                gemini_messages.append({
+                    'role': role,
+                    'parts': [{'text': msg['content']}]
+                })
+        
+        # Create model with system instruction if present
+        model_instance = self.google_client.GenerativeModel(
+            model_name=model,
+            system_instruction=system_instruction
+        )
+        
+        # Configure generation
+        generation_config = self.google_client.types.GenerationConfig(
+            temperature=kwargs.get('temperature', 0.7),
+            max_output_tokens=kwargs.get('max_tokens', 2048),
+        )
+        
+        response = model_instance.generate_content(
+            gemini_messages,
+            generation_config=generation_config,
+            stream=stream
+        )
+        
+        if stream:
+            return {'stream': response, 'provider': 'google', 'model': model}
+        
+        return {
+            'content': response.text,
+            'model': model,
+            'usage': {
+                'prompt_tokens': response.usage_metadata.prompt_token_count,
+                'completion_tokens': response.usage_metadata.candidates_token_count,
+                'total_tokens': response.usage_metadata.total_token_count
+            },
+            'finish_reason': 'stop'  # Gemini doesn't provide detailed finish reasons
         }
     
     def _openai_completion(self, messages: List[Dict], model: str, stream: bool, **kwargs) -> Dict:
@@ -405,10 +616,11 @@ Please format ALL your responses this way. Never use plain text paragraphs."""
         )
         
         if stream:
-            return {'stream': response, 'provider': 'openai'}
+            return {'stream': response, 'provider': 'openai', 'model': model}
         
         return {
             'content': response.choices[0].message.content,
+            'model': model,
             'usage': {
                 'prompt_tokens': response.usage.prompt_tokens,
                 'completion_tokens': response.usage.completion_tokens,
@@ -445,10 +657,11 @@ Please format ALL your responses this way. Never use plain text paragraphs."""
         )
         
         if stream:
-            return {'stream': response, 'provider': 'anthropic'}
+            return {'stream': response, 'provider': 'anthropic', 'model': model}
         
         return {
             'content': response.content[0].text,
+            'model': model,
             'usage': {
                 'prompt_tokens': response.usage.input_tokens,
                 'completion_tokens': response.usage.output_tokens,
@@ -465,36 +678,63 @@ Please format ALL your responses this way. Never use plain text paragraphs."""
         stream: bool,
         **kwargs
     ) -> Dict:
-        """Execute fallback strategy when primary model fails"""
-        logger.info(f"Executing fallback after {failed_provider.value} failure")
+        """Execute comprehensive fallback strategy when primary model fails"""
+        logger.info(f"Executing comprehensive fallback after {failed_provider.value} failure")
         
-        # Try alternative providers in order
-        fallback_order = [
+        # Try alternative providers in order of priority: NVIDIA > GROQ > GOOGLE > ANTHROPIC > OPENAI
+        fallback_providers = [
+            ModelProvider.NVIDIA,
             ModelProvider.GROQ,
-            ModelProvider.OPENAI,
-            ModelProvider.ANTHROPIC
+            ModelProvider.GOOGLE,
+            ModelProvider.ANTHROPIC,
+            ModelProvider.OPENAI
         ]
         
         # Remove failed provider
-        fallback_order = [p for p in fallback_order if p != failed_provider]
+        fallback_providers = [p for p in fallback_providers if p != failed_provider]
         
-        for provider in fallback_order:
-            try:
-                _, model = self.select_optimal_model(complexity, "balanced")
-                
-                if provider == ModelProvider.GROQ:
-                    return self._groq_completion(messages, model, stream, **kwargs)
-                elif provider == ModelProvider.OPENAI:
-                    return self._openai_completion(messages, model, stream, **kwargs)
-                elif provider == ModelProvider.ANTHROPIC:
-                    return self._anthropic_completion(messages, model, stream, **kwargs)
-                    
-            except Exception as e:
-                logger.warning(f"Fallback to {provider.value} failed: {e}")
+        # Try each provider in order
+        for provider in fallback_providers:
+            logger.info(f"Trying fallback provider: {provider.value}")
+            
+            # Get all available models for this provider, sorted by preference
+            available_models = self._get_provider_models_sorted(provider, complexity, "balanced", kwargs.get('constraints'))
+            
+            if not available_models:
+                logger.warning(f"No suitable models found for {provider.value} with complexity {complexity.value}")
                 continue
+            
+            # Try each model for this provider
+            for model in available_models:
+                try:
+                    logger.info(f"Trying {provider.value}/{model}")
+                    
+                    if provider == ModelProvider.NVIDIA:
+                        result = self._nvidia_completion(messages, model, stream, **kwargs)
+                    elif provider == ModelProvider.GROQ:
+                        result = self._groq_completion(messages, model, stream, **kwargs)
+                    elif provider == ModelProvider.GOOGLE:
+                        result = self._google_completion(messages, model, stream, **kwargs)
+                    elif provider == ModelProvider.ANTHROPIC:
+                        result = self._anthropic_completion(messages, model, stream, **kwargs)
+                    elif provider == ModelProvider.OPENAI:
+                        result = self._openai_completion(messages, model, stream, **kwargs)
+                    else:
+                        logger.warning(f"Unknown provider: {provider}")
+                        continue
+                    
+                    logger.info(f"Successfully fell back to {provider.value}/{model}")
+                    return result
+                    
+                except Exception as e:
+                    logger.warning(f"Model {provider.value}/{model} failed: {e}")
+                    continue
+            
+            logger.warning(f"All models failed for provider {provider.value}")
         
+        logger.error("All fallback attempts failed")
         return {
-            'error': 'All providers failed',
+            'error': 'All providers and models failed',
             'content': None
         }
     

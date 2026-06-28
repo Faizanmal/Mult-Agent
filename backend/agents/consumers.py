@@ -190,27 +190,97 @@ class SessionConsumer(AsyncWebsocketConsumer):
             await self.send_error(f'Unknown command: {command}')
     
     async def handle_stream_request(self, data):
-        """Handle streaming request"""
-        
-        # Start streaming response
+        """
+        Handle streaming request — sends real token-by-token output from Groq.
+        Runs the synchronous Groq streaming generator in a thread-pool so the
+        async WebSocket event loop is never blocked.
+        """
+        content = data.get('content', '') or data.get('message', '')
+        model = data.get('model')
+
         await self.send(text_data=json.dumps({
             'type': 'stream_start',
-            'message': 'Starting stream response...'
+            'message': 'Generating response...',
         }))
-        
-        # This would be implemented with proper async streaming
-        # For now, sending a placeholder
-        await self.send(text_data=json.dumps({
-            'type': 'stream_chunk',
-            'content': 'This is a streaming response chunk.',
-            'done': False
-        }))
-        
-        await self.send(text_data=json.dumps({
-            'type': 'stream_end',
-            'content': '',
-            'done': True
-        }))
+
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        from .services.groq_service import GroqService
+        from django.conf import settings
+
+        if not settings.GROQ_API_KEY:
+            await self.send(text_data=json.dumps({
+                'type': 'stream_chunk',
+                'chunk': 'Groq API key not configured.',
+                'full_content': 'Groq API key not configured.',
+                'done': False,
+            }))
+            await self.send(text_data=json.dumps({'type': 'stream_end', 'done': True, 'full_content': ''}))
+            return
+
+        messages_payload = [
+            {
+                'role': 'system',
+                'content': (
+                    'You are a helpful AI assistant in a multi-agent system. '
+                    'Format responses using Markdown.'
+                ),
+            },
+            {'role': 'user', 'content': content},
+        ]
+
+        groq_service = GroqService()
+        full_content = ''
+        loop = asyncio.get_event_loop()
+
+        # Collect streaming chunks in a background thread so we don't block the event loop
+        def _run_stream():
+            chunks = []
+            try:
+                for chunk in groq_service.stream_completion(messages_payload, model=model):
+                    chunks.append(chunk)
+            except Exception as exc:
+                chunks.append({'error': str(exc), 'content': '', 'done': True})
+            return chunks
+
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                chunks = await loop.run_in_executor(executor, _run_stream)
+
+            for chunk in chunks:
+                if chunk.get('error'):
+                    await self.send(text_data=json.dumps({
+                        'type': 'stream_chunk',
+                        'chunk': f"[Error: {chunk['error']}]",
+                        'full_content': full_content,
+                        'done': False,
+                    }))
+                    break
+
+                token = chunk.get('content', '')
+                if token:
+                    full_content += token
+                    await self.send(text_data=json.dumps({
+                        'type': 'stream_chunk',
+                        'chunk': token,
+                        'full_content': full_content,
+                        'done': False,
+                    }))
+
+            await self.send(text_data=json.dumps({
+                'type': 'stream_end',
+                'full_content': full_content,
+                'done': True,
+            }))
+
+        except Exception as e:
+            logger.error(f'Streaming error: {e}')
+            await self.send(text_data=json.dumps({
+                'type': 'stream_end',
+                'full_content': full_content,
+                'error': str(e),
+                'done': True,
+            }))
     
     # WebSocket message handlers
     async def chat_message(self, event):
@@ -463,122 +533,106 @@ class SessionConsumer(AsyncWebsocketConsumer):
         }
     
     async def process_with_agents(self, session_data, message_id, message_content, group_name):
-        """Process message with agents using GroqService for better performance"""
+        """
+        Process message through the full multi-agent orchestration pipeline.
+        Routes through LangchainAgentCoordinator (ReAct loop) for real agent reasoning,
+        then sends the response back over WebSocket.
+        """
+        from .services.groq_service import GroqService
+        from django.conf import settings
+
+        if not settings.GROQ_API_KEY:
+            await self._async_send_fallback_response(message_id, group_name, "Groq API key not configured")
+            return {"status": "fallback", "reason": "no_api_key"}
+
         try:
-            print("DEBUG: Inside process_with_agents method")
-            print(f"DEBUG: Processing with agents for session: {session_data['name']}")
-            print(f"DEBUG: Session agents count: {session_data['agents_count']}")
-            print(f"DEBUG: Message content: {message_content}")
-            print(f"DEBUG: Group name: {group_name}")
-            
-            from .services.groq_service import GroqService
-            from django.conf import settings
-            
-            # Check if Groq API key is available
-            groq_api_key = settings.GROQ_API_KEY
-            if not groq_api_key:
-                print("WARNING: GROQ_API_KEY not set. Using fallback response.")
-                await self._async_send_fallback_response(message_id, group_name, "Groq API key not configured")
-                return {"status": "fallback", "reason": "no_api_key"}
-            
-            # Get the first active agent
-            agent_name = await self.get_first_active_agent(session_data['id'])
-            agent_name = agent_name or "Master Orchestrator"
-            
-            print(f"DEBUG: Selected agent: {agent_name}")
-            
-            # Use lightweight processing instead of EnhancedAgentCoordinator (which has blocking calls)
-            try:
-                # Build conversation context
-                messages_history = [
-                    {"role": "system", "content": f"""You are {agent_name}, a helpful AI assistant in a multi-agent system.
+            # ── Run the full agent coordinator in a thread (it's sync Django ORM) ──
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
 
-CRITICAL FORMATTING REQUIREMENTS:
-- You MUST format ALL responses using proper Markdown syntax
-- Use headers: ## Header for sections
-- Use **bold text** for emphasis
-- Use bullet points: - Item for lists
-- Use numbered lists: 1. Item for steps
-- Use `inline code` for code references
-- Use ```language code blocks for code examples
-- Structure your response with clear sections and formatting
+            def _run_coordinator():
+                from .models import Session, Message as AgentMessage
+                from .services.langchain_coordinator import LangchainAgentCoordinator
+                import uuid as uuid_module
 
-EXAMPLE FORMAT:
-## Introduction
-Hello, I'm **Master Orchestrator**, your AI assistant.
+                try:
+                    session_uuid = uuid_module.UUID(session_data['id'])
+                    session_obj = Session.objects.get(id=session_uuid)
+                except Exception:
+                    # Fallback to simple Groq call if session can't be loaded
+                    return None, None
 
-## What I Can Help With
-- **General Questions**: Answering various topics
-- **Code Support**: Helping with programming
-- **Problem Solving**: Providing solutions
+                # Get the message object
+                try:
+                    msg_uuid = uuid_module.UUID(message_id)
+                    message_obj = AgentMessage.objects.get(id=msg_uuid)
+                except Exception:
+                    return None, None
 
-## Getting Started
-To begin, simply ask me a question!
+                coordinator = LangchainAgentCoordinator(session_obj)
+                result = coordinator.process_message(message_obj)
+                return result, None
 
-```python
-print("Hello, World!")
-```
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                result, error = await loop.run_in_executor(executor, _run_coordinator)
 
-Please format ALL your responses this way. Never use plain text paragraphs."""},
-                    {"role": "user", "content": message_content}
-                ]
-                
-                print(f"DEBUG: System prompt: {messages_history[0]['content']}")
-                print(f"DEBUG: User message: {message_content}")
-                
-                # Get response from Groq service (non-blocking call)
-                groq_service = GroqService()
-                groq_response = groq_service.chat_completion(messages_history)
-                
-                print(f"DEBUG: Groq response: {groq_response}")
-                
-                # Handle response safely
-                if groq_response and isinstance(groq_response, dict):
-                    response_content = groq_response.get('content', groq_response.get('message', 'I apologize, but I encountered an issue processing your request.'))
-                else:
-                    response_content = 'I apologize, but I encountered an issue processing your request.'
-                
-                print(f"DEBUG: Response content: {response_content}")
-                print(f"DEBUG: Response content type: {type(response_content)}")
-                print(f"DEBUG: Response content length: {len(response_content) if response_content else 0}")
-                
-            except Exception as e:
-                print(f"ERROR in Groq service: {e}")
-                import traceback
-                traceback.print_exc()
-                
-                # Fallback response
-                await self._async_send_fallback_response(message_id, group_name, str(e))
-                return {"status": "error", "error": str(e)}
-            
-            # Send response via WebSocket using async channel layer call
-            agent_id = await self.get_first_active_agent_id(session_data['id'])
-            await self.channel_layer.group_send(
-                group_name,
-                {
-                    "type": "agent_response", 
-                    "response": {
-                        "content": response_content,
-                        "synthesized": True,
-                        "orchestrator": agent_name,
-                        "agent_id": agent_id
-                    },
-                    "original_message_id": message_id,
-                    "timestamp": datetime.now().isoformat()
-                }
+            if result is None:
+                # Coordinator failed — fall back to direct Groq call
+                raise RuntimeError("Coordinator returned None")
+
+            # Extract final response content
+            response_data = result.get('response', result)
+            if isinstance(response_data, dict):
+                response_content = (
+                    response_data.get('content')
+                    or response_data.get('message')
+                    or str(response_data)
+                )
+            else:
+                response_content = str(response_data)
+
+            agent_name = (
+                result.get('agents_involved', ['Orchestrator'])[0]
+                if result.get('agents_involved') else 'Orchestrator'
             )
-            
-            print("DEBUG: Agent response sent successfully")
-            return {"status": "processed", "agent": agent_name}
-            
+            agent_id = await self.get_first_active_agent_id(session_data['id'])
+
         except Exception as e:
-            logger.error(f"Agent processing error: {str(e)}")
-            print(f"DEBUG: Agent processing error: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            
-            await self._async_send_error_response(message_id, group_name, str(e))
-            return {"status": "error", "error": str(e)}
+            logger.warning(f"Full coordinator failed, using direct Groq: {e}")
+            # Direct Groq fallback
+            try:
+                groq_service = GroqService()
+                agent_name = await self.get_first_active_agent(session_data['id']) or "Master Orchestrator"
+                messages_history = [
+                    {"role": "system", "content": (
+                        f"You are {agent_name}, a helpful AI assistant in a multi-agent system. "
+                        "Format responses using Markdown with headers, bullet points, and code blocks."
+                    )},
+                    {"role": "user", "content": message_content},
+                ]
+                groq_response = groq_service.chat_completion(messages_history)
+                response_content = groq_response.get('content', 'Unable to process request.')
+                agent_id = await self.get_first_active_agent_id(session_data['id'])
+            except Exception as e2:
+                await self._async_send_fallback_response(message_id, group_name, str(e2))
+                return {"status": "error", "error": str(e2)}
+
+        await self.channel_layer.group_send(
+            group_name,
+            {
+                "type": "agent_response",
+                "response": {
+                    "content": response_content,
+                    "synthesized": True,
+                    "orchestrator": agent_name,
+                    "agent_id": agent_id,
+                },
+                "original_message_id": message_id,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+        return {"status": "processed", "agent": agent_name}
     
     async def _async_send_fallback_response(self, message_id, group_name, reason):
         """Send a fallback response when API is not available"""

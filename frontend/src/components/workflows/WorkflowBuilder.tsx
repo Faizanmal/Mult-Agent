@@ -70,6 +70,7 @@ import {
   Share2
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { executeAgentWorkflow, getAgentWorkflowTemplates, type WorkflowTemplate as ApiWorkflowTemplate } from '@/lib/api'
 
 // Import new components
 import CustomNode from './nodes/CustomNode'
@@ -124,6 +125,8 @@ interface TemplateShort {
   name?: string
   description?: string
 }
+
+const WORKFLOW_DRAFT_STORAGE_KEY = 'workflow-builder-draft'
 
 const stepTypes = [
   { value: 'agent_task', label: 'Agent Task', icon: '🤖', color: '#3b82f6', category: 'agents' },
@@ -268,9 +271,14 @@ const WorkflowBuilder: React.FC = () => {
   useEffect(() => {
     async function loadTemplates() {
       try {
-        const res = await fetch('/api/workflow-builder/templates/');
-        const data = await res.json();
-        setWorkflowTemplates(data.templates || data || []);
+        const data = await getAgentWorkflowTemplates()
+        setWorkflowTemplates(
+          (data.templates || []).map((template: ApiWorkflowTemplate) => ({
+            id: template.id,
+            name: template.name,
+            description: template.description,
+          }))
+        )
       } catch (e) {
         console.error('Failed to load workflow templates', e);
       }
@@ -324,22 +332,11 @@ const WorkflowBuilder: React.FC = () => {
     }
 
     try {
-      const response = await fetch('/api/agents/workflows/save_workflow/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(workflow)
+      localStorage.setItem(WORKFLOW_DRAFT_STORAGE_KEY, JSON.stringify(workflow))
+      toast({
+        title: 'Workflow Draft Saved',
+        description: 'Saved locally in this browser until backend template persistence is wired.',
       })
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        toast({
-          title: 'Workflow Saved',
-          description: 'Your workflow has been successfully saved.',
-        })
-      }
     } catch (error) {
       console.error('Error saving workflow:', error)
       toast({
@@ -667,40 +664,19 @@ const WorkflowBuilder: React.FC = () => {
     }, 1000)
 
     try {
-      // Simulate step-by-step execution for demo
-      for (let i = 0; i < steps.length; i++) {
-        setExecutionSteps(prev => prev.map((s, idx) => 
-          idx === i ? { ...s, status: 'running' } : s
-        ))
-        
-        setExecutionLogs(prev => [...prev, {
-          timestamp: new Date().toLocaleTimeString(),
-          level: 'info',
-          message: `Executing step ${i + 1}: ${steps[i].name}`
-        }])
-        
-        await new Promise(resolve => setTimeout(resolve, 500))
-      }
-      
-      const response = await fetch('/api/agents/workflows/execute_workflow/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          workflow_definition: workflowDef,
-          input_data: {}
-        })
-      })
+      setExecutionLogs(prev => [...prev, {
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'info',
+        message: 'Workflow request sent to backend orchestration engine'
+      }])
 
-      const data = await response.json()
+      const data = await executeAgentWorkflow(workflowDef, {})
       setExecutionResults(data)
 
       // Update steps with completion
       setExecutionSteps(prev => prev.map(s => ({
         ...s,
         status: data.success ? 'completed' as const : 'failed' as const,
-        duration: Math.floor(Math.random() * 1000),
         output: data.results[s.id]
       })))
       

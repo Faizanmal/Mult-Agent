@@ -14,6 +14,12 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
+# Disable TensorFlow backend in transformers/sentence-transformers.
+# Must be set before any of those packages are imported.
+os.environ.setdefault('TRANSFORMERS_NO_TF', '1')
+os.environ.setdefault('USE_TF', '0')
+os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '3')
+
 # Load environment variables
 load_dotenv()
 
@@ -74,6 +80,7 @@ INSTALLED_APPS = [
     'workflow_builder',
     'integrations',
     'feedback',
+    'billing',
 ]
 
 # Add performance tracking middleware
@@ -102,6 +109,8 @@ MIDDLEWARE = [
     'authentication.security_middleware.RequestIDMiddleware',
     # API versioning middleware
     'backend.api_versioning.APIVersionMiddleware',
+    # Billing quota middleware
+    'billing.middleware.QuotaEnforcementMiddleware',
 ]
 
 ROOT_URLCONF = 'backend.urls'

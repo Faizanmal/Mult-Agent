@@ -329,11 +329,20 @@ class AnalyticsDashboard:
                 'date': start_date.isoformat(),
                 'value': completion_rate
             })
-            
-            # Agent efficiency (placeholder calculation)
+
+            # Agent efficiency: (completed / total) weighted by avg speed relative to period length
+            completed_tasks = interval_tasks.filter(status=TaskStatus.COMPLETED)
+            avg_duration = completed_tasks.aggregate(
+                avg_time=Avg('actual_duration')
+            )['avg_time'] or 0
+            # Normalise duration: efficiency = completion_rate penalised by how slow tasks were
+            # A task completing within 10 % of the interval window is considered "fast" (score 1.0)
+            interval_seconds = (end_date - start_date).total_seconds()
+            speed_score = max(0.0, 1.0 - (avg_duration / max(interval_seconds * 0.1, 1)))
+            agent_efficiency = (completion_rate * 0.6) + (speed_score * 0.4)
             trends['agent_efficiency'].append({
                 'date': start_date.isoformat(),
-                'value': completion_rate * 0.8  # Simplified calculation
+                'value': min(agent_efficiency, 1.0),
             })
             
             # Response times

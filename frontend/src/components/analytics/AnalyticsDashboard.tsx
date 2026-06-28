@@ -363,13 +363,20 @@ const AnalyticsDashboard: React.FC = () => {
                     <YAxis />
                     <Tooltip 
                       labelFormatter={(value) => new Date(value).toLocaleString()}
-                      formatter={(value: number, name: string) => [
-                        name === 'execution_time' ? `${value.toFixed(2)}s` :
-                        name === 'success_rate' ? `${value.toFixed(1)}%` :
-                        name === 'accuracy_score' ? `${value.toFixed(1)}%` :
-                        `${value.toFixed(1)}%`,
-                        name.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
-                      ]}
+                      formatter={(value, name) => {
+                        const numericValue = typeof value === 'number'
+                          ? value
+                          : Number(Array.isArray(value) ? value[0] : value ?? 0)
+
+                        const formattedValue = name === 'execution_time'
+                          ? `${numericValue.toFixed(2)}s`
+                          : `${numericValue.toFixed(1)}%`
+
+                        return [
+                          formattedValue,
+                          String(name ?? '').replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
+                        ]
+                      }}
                     />
                     <Legend />
                     <Line type="monotone" dataKey="success_rate" stroke="#10b981" name="Success Rate" strokeWidth={2} />

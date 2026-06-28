@@ -1,5 +1,7 @@
 from typing import List, Dict, Any, Optional
 import logging
+import json
+import re
 from datetime import datetime
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
@@ -8,8 +10,24 @@ from ..models import Agent, Session, Task, Message, TaskStatus, AgentStatus
 from .groq_service import GroqService
 from .vision_service import VisionService
 from .audio_service import AudioService
+from .rag_system import VectorDatabase, RAGSystem
+from .agent_selector import SmartAgentSelector
 
 logger = logging.getLogger(__name__)
+
+# Module-level RAG singleton — initialised lazily so startup isn't blocked
+_rag_system: Optional[RAGSystem] = None
+
+def _get_rag_system() -> Optional[RAGSystem]:
+    """Return the shared RAGSystem, initialising it once on first call."""
+    global _rag_system
+    if _rag_system is None:
+        try:
+            _rag_system = RAGSystem(VectorDatabase())
+            logger.info("RAG system initialised")
+        except Exception as e:
+            logger.warning(f"RAG system unavailable: {e}")
+    return _rag_system
 
 class AgentCoordinator:
     """
@@ -21,45 +39,144 @@ class AgentCoordinator:
         self.groq_service = GroqService()
         self.vision_service = VisionService()
         self.audio_service = AudioService()
+        self.agent_selector = SmartAgentSelector()
         self.active_agents = {}
         self.task_queue = []
         
     def process_message(self, message: Message) -> Dict[str, Any]:
         """
-        Process incoming message and coordinate agent responses
-        
-        Args:
-            message: The message to process
-            
-        Returns:
-            Coordination results
+        Process incoming message and coordinate agent responses.
+        Routes complex multi-step requests through the WorkflowOrchestrator (DAG),
+        and uses the MultiModelOrchestrator for intelligent provider selection.
         """
         logger.info(f"Processing message: {message.id}")
-        
-        # Determine which agents should handle this message
+
+        # ── Detect task complexity & choose execution path ───────────────────
+        if self._is_complex_workflow(message.content):
+            try:
+                result = self._route_through_workflow_dag(message)
+                if result:
+                    self._send_response_to_session(result, message)
+                    return {
+                        'message_id': str(message.id),
+                        'agents_involved': result.get('agents_involved', []),
+                        'tasks_created': result.get('steps_executed', 0),
+                        'response': result,
+                        'routing': 'workflow_dag',
+                    }
+            except Exception as e:
+                logger.warning(f"DAG routing failed, falling back to standard: {e}")
+
+        # ── Standard multi-agent path ────────────────────────────────────────
         relevant_agents = self._determine_relevant_agents(message)
-        
-        # Create tasks for relevant agents
+
         tasks = []
         for agent in relevant_agents:
             task = self._create_agent_task(agent, message)
             tasks.append(task)
-        
-        # Execute tasks in appropriate order
+
         results = self._execute_tasks(tasks)
-        
-        # Synthesize results from all agents
         final_response = self._synthesize_responses(results)
-        
-        # Send response back to session
         self._send_response_to_session(final_response, message)
-        
+
         return {
             'message_id': str(message.id),
             'agents_involved': [agent.name for agent in relevant_agents],
             'tasks_created': len(tasks),
-            'response': final_response
+            'response': final_response,
+            'routing': 'standard',
         }
+
+    def _is_complex_workflow(self, content: str) -> bool:
+        """
+        Heuristic: decide if a message warrants multi-step DAG execution.
+        Triggers for multi-step keywords, long requests, or explicit pipeline requests.
+        """
+        content_lower = content.lower()
+        complex_signals = [
+            'step by step', 'step-by-step', 'workflow', 'pipeline',
+            'first.*then', 'analyze.*and then', 'compare.*and', 'generate.*and.*send',
+            'research', 'plan and', 'create a report', 'multiple steps',
+        ]
+        if len(content) > 500:
+            return True
+        for signal in complex_signals:
+            if re.search(signal, content_lower):
+                return True
+        return False
+
+    def _route_through_workflow_dag(self, message: Message) -> Optional[Dict[str, Any]]:
+        """
+        Route a complex request through the WorkflowOrchestrator using an appropriate
+        pre-built template. Maps message intent to the best matching template ID.
+        """
+        from .workflow_orchestrator import WorkflowOrchestrator
+        import asyncio
+
+        # ── Pick the best matching template ──────────────────────────────────
+        template_id = self._select_workflow_template(message.content)
+        if not template_id:
+            return None
+
+        user_id = str(self.session.user_id) if hasattr(self.session, 'user_id') else 'unknown'
+        input_data = {
+            'content': message.content,
+            'message_type': message.message_type,
+            'session_id': str(self.session.id),
+            'message_id': str(message.id),
+        }
+
+        orchestrator = WorkflowOrchestrator()
+
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(
+                    orchestrator.execute_workflow(
+                        workflow_id=template_id,
+                        input_data=input_data,
+                        user_id=user_id,
+                        session_id=str(self.session.id),
+                    )
+                )
+            finally:
+                loop.close()
+
+            if result:
+                result['routing'] = 'workflow_dag'
+                result['template_used'] = template_id
+            return result
+
+        except Exception as e:
+            logger.error(f"Workflow DAG execution error (template={template_id}): {e}")
+            return None
+
+    def _select_workflow_template(self, content: str) -> Optional[str]:
+        """
+        Map message content to the most appropriate workflow template ID.
+        Returns None if no template is a good fit.
+        """
+        content_lower = content.lower()
+
+        if any(w in content_lower for w in ['data', 'analys', 'dataset', 'csv', 'chart', 'graph']):
+            return 'data_analysis_pipeline'
+        if any(w in content_lower for w in ['research', 'summarize', 'summarise', 'literature']):
+            return 'research_and_summarize'
+        if any(w in content_lower for w in ['report', 'document', 'write up', 'generate doc']):
+            return 'document_generation'
+        if any(w in content_lower for w in ['code review', 'review code', 'pull request', 'pr review']):
+            return 'code_review_process'
+        if any(w in content_lower for w in ['bug', 'error', 'exception', 'crash', 'investigate']):
+            return 'bug_investigation'
+        if any(w in content_lower for w in ['support', 'ticket', 'complaint', 'help request']):
+            return 'customer_support_ticket'
+        if any(w in content_lower for w in ['content', 'blog', 'article', 'copy', 'marketing']):
+            return 'content_creation_workflow'
+        if any(w in content_lower for w in ['test', 'qa', 'quality', 'automated test']):
+            return 'automated_testing'
+        if any(w in content_lower for w in ['onboard', 'new user', 'setup', 'getting started']):
+            return 'onboarding_automation'
+        return None
     
     def process_multimodal_message(self, message: Message) -> Dict[str, Any]:
         """
@@ -147,39 +264,103 @@ class AgentCoordinator:
         
         task.save()
         
+        # ── Auto-trigger Reinforcement Learning update ──────────────────────
+        self._trigger_rl_update(task, result)
+
         # Notify via WebSocket
         self._notify_task_completion(task, result)
         
         return result
     
     def _determine_relevant_agents(self, message: Message) -> List[Agent]:
-        """Determine which agents should process this message"""
-        relevant_agents = []
+        """
+        Determine which agents should process this message.
+        1. LLM decides which agent *types* are needed (JSON array).
+        2. SmartAgentSelector picks the best *instance* per type (4-factor score).
+        3. Falls back to keyword heuristics if LLM fails.
+        """
         session_agents = self.session.agents.filter(is_active=True)
-        
-        # Always include orchestrator if available
+
+        # ── Step 1: LLM-driven type selection ───────────────────────────────
+        needed_types: List[str] = []
+        try:
+            agent_descriptions = [f"{a.name} (type={a.type})" for a in session_agents]
+            planning_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a task router. Return ONLY a JSON array of agent types needed, "
+                        "e.g. [\"orchestrator\",\"reasoning\"]. Always include 'orchestrator'. "
+                        "Available types: orchestrator, vision, reasoning, action, memory."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Message: {message.content}\n"
+                        f"Type: {message.message_type}\n"
+                        f"Available agents: {', '.join(agent_descriptions)}"
+                    ),
+                },
+            ]
+            resp = self.groq_service.chat_completion(
+                planning_messages, max_tokens=64, temperature=0.1
+            )
+            content = resp.get("content", "")
+            match = re.search(r"\[.*?\]", content, re.DOTALL)
+            if match:
+                needed_types = json.loads(match.group())
+        except Exception as e:
+            logger.warning(f"LLM agent routing failed: {e}")
+
+        # ── Step 2: SmartAgentSelector — pick best instance per type ────────
+        relevant_agents: List[Agent] = []
+        if needed_types:
+            for agent_type in needed_types:
+                candidates = list(session_agents.filter(type=agent_type))
+                if not candidates:
+                    continue
+                if len(candidates) == 1:
+                    relevant_agents.append(candidates[0])
+                else:
+                    try:
+                        best = self.agent_selector.select_best_agent(
+                            task_type=agent_type,
+                            task_description=message.content[:200],
+                            requirements={'message_type': message.message_type},
+                            exclude_agents=[],
+                        )
+                        # Prefer selector's pick if it's in our candidate list,
+                        # otherwise fall back to first candidate
+                        if best and best in candidates:
+                            relevant_agents.append(best)
+                        else:
+                            relevant_agents.append(candidates[0])
+                    except Exception:
+                        relevant_agents.append(candidates[0])
+            if relevant_agents:
+                return relevant_agents
+
+        # ── Step 3: Keyword fallback ─────────────────────────────────────────
+        relevant_agents = []
         orchestrator = session_agents.filter(type='orchestrator').first()
         if orchestrator:
             relevant_agents.append(orchestrator)
-        
-        # Add specific agents based on message type
+
         if message.message_type == 'image':
             vision_agent = session_agents.filter(type='vision').first()
             if vision_agent:
                 relevant_agents.append(vision_agent)
-        
         elif message.message_type == 'audio':
-            # Audio processing might need both vision and reasoning
             for agent_type in ['vision', 'reasoning']:
                 agent = session_agents.filter(type=agent_type).first()
                 if agent and agent not in relevant_agents:
                     relevant_agents.append(agent)
-        
-        # Always include reasoning agent for complex analysis
+
         reasoning_agent = session_agents.filter(type='reasoning').first()
         if reasoning_agent and reasoning_agent not in relevant_agents:
             relevant_agents.append(reasoning_agent)
-        
+
         return relevant_agents
     
     def _create_agent_task(self, agent: Agent, message: Message) -> Task:
@@ -219,38 +400,53 @@ class AgentCoordinator:
         return results
     
     def _synthesize_responses(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Synthesize responses from multiple agents"""
+        """
+        Synthesise responses from all agents.
+        Uses MultiModelOrchestrator for intelligent provider selection
+        (falls back to GroqService if unavailable).
+        """
         orchestrator = self._get_agent_by_type('orchestrator')
-        
+
         if not orchestrator:
-            # Simple concatenation if no orchestrator
             return {
                 'content': 'Multiple agents processed your request.',
                 'agent_results': results,
-                'synthesized': False
+                'synthesized': False,
             }
-        
-        # Use orchestrator to synthesize
-        synthesis_prompt = f"""
-        Synthesize the following agent responses into a coherent, helpful response:
-        
-        Agent Results: {results}
-        
-        Provide a unified response that incorporates insights from all agents.
-        """
-        
+
+        synthesis_prompt = (
+            "You are the Orchestrator Agent. You have received the following outputs from "
+            "specialist agents. Synthesise them into a single, well-structured, user-facing "
+            "response. Do not just concatenate — reason about which parts are most important "
+            "and integrate them coherently.\n\n"
+            f"Agent outputs:\n{json.dumps(results, indent=2, default=str)}"
+        )
+
         messages = [
             {"role": "system", "content": self.groq_service._get_orchestrator_prompt()},
-            {"role": "user", "content": synthesis_prompt}
+            {"role": "user", "content": synthesis_prompt},
         ]
-        
-        synthesis = self.groq_service.chat_completion(messages)
-        
+
+        # Try multi-model routing first
+        synthesis = None
+        model_used = 'groq_default'
+        try:
+            from Multi_model_Intelligence.services import MultiModelOrchestrator
+            mm = MultiModelOrchestrator()
+            synthesis = mm.chat_completion(messages, priority='quality')
+            model_used = synthesis.get('model', 'multi_model')
+        except Exception:
+            pass
+
+        if synthesis is None:
+            synthesis = self.groq_service.chat_completion(messages)
+
         return {
             'content': synthesis.get('content', 'Error synthesizing responses'),
             'agent_results': results,
             'synthesized': True,
-            'orchestrator': orchestrator.name
+            'orchestrator': orchestrator.name,
+            'model_used': model_used,
         }
     
     def _send_response_to_session(self, response: Dict[str, Any], original_message: Message):
@@ -271,19 +467,169 @@ class AgentCoordinator:
         return self.session.agents.filter(type=agent_type, is_active=True).first()
     
     def _execute_orchestrator_task(self, task: Task) -> Dict[str, Any]:
-        """Execute orchestrator-specific task"""
+        """
+        Execute orchestrator task using a real ReAct (Reason-Act-Observe) loop.
+        The orchestrator LLM reasons about the goal, calls tools, observes results,
+        and iterates until it reaches a final answer — instead of a single-shot call.
+        """
         input_data = task.input_data
-        
-        response = self.groq_service.generate_agent_response(
-            'orchestrator',
-            {'session_context': self.session.context},
-            input_data.get('content', '')
+        user_content = input_data.get('content', '')
+        session_context = self.session.context or {}
+
+        # Fetch recent memory for context
+        try:
+            from ..models import AgentMemory
+            memories = AgentMemory.objects.filter(session=self.session).order_by('-importance_score')[:5]
+            memory_str = "\n".join(f"[{m.key}]: {str(m.value)[:120]}" for m in memories) or "(none)"
+        except Exception:
+            memory_str = "(unavailable)"
+
+        # Available specialist agents
+        session_agents = self.session.agents.filter(is_active=True)
+        agent_list = ", ".join(
+            f"{a.name}(type={a.type}, id={a.id})" for a in session_agents
         )
-        
+
+        # ── ReAct system prompt ──────────────────────────────────────────────
+        react_system = (
+            "You are an Orchestrator Agent running a ReAct (Reason + Act) loop.\n\n"
+            "At each step you MUST produce EXACTLY one of:\n"
+            "  Thought: <your reasoning about what to do next>\n"
+            "  Action: <tool_name>\n"
+            "  Action Input: <JSON arguments for the tool>\n"
+            "OR, when you have enough information:\n"
+            "  Final Answer: <your complete, well-formatted response to the user>\n\n"
+            "Available tools:\n"
+            "  execute_agent_task(agent_type, task_description, context_json) — run a specialist agent\n"
+            "  search_memory(query, session_id, agent_id) — look up past knowledge\n"
+            "  store_insight(key, value, session_id, importance) — save important findings\n"
+            "  plan_task_decomposition(task_description, available_agents) — build a step plan\n\n"
+            f"Available agents: {agent_list}\n"
+            f"Recent memory:\n{memory_str}\n\n"
+            "Rules:\n"
+            "- Never skip the Thought step.\n"
+            "- Always call at least plan_task_decomposition before delegating work.\n"
+            "- Use execute_agent_task to get REAL responses from specialists.\n"
+            "- Store key intermediate results with store_insight.\n"
+            "- Produce Final Answer only after you have gathered enough information."
+        )
+
+        conversation: List[Dict[str, str]] = [
+            {"role": "system", "content": react_system},
+            {
+                "role": "user",
+                "content": (
+                    f"Session context: {json.dumps(session_context)}\n\n"
+                    f"User request: {user_content}"
+                ),
+            },
+        ]
+
+        # ── Simple tool execution map ────────────────────────────────────────
+        def _execute_tool(tool_name: str, tool_input: Dict) -> str:
+            try:
+                if tool_name == "execute_agent_task":
+                    from .langchain_coordinator import _invoke_agent_via_groq
+                    agent_type = tool_input.get("agent_type", "reasoning")
+                    task_desc = tool_input.get("task_description", "")
+                    ctx = json.dumps(tool_input.get("context_json", {}))
+                    result = _invoke_agent_via_groq(agent_type, task_desc, ctx)
+                    return json.dumps({"status": "success", "agent_type": agent_type, "result": result})
+
+                elif tool_name == "search_memory":
+                    from ..models import AgentMemory
+                    query = tool_input.get("query", "")
+                    filters: Dict[str, Any] = {}
+                    if tool_input.get("session_id"):
+                        filters["session_id"] = tool_input["session_id"]
+                    mems = AgentMemory.objects.filter(
+                        session=self.session, **filters
+                    ).order_by("-importance_score")[:10]
+                    words = set(query.lower().split())
+                    scored = sorted(
+                        [(sum(1 for w in words if w in str(m.value).lower()), m) for m in mems],
+                        key=lambda x: x[0], reverse=True
+                    )
+                    hits = [{"key": m.key, "value": m.value} for _, m in scored[:5]]
+                    return json.dumps({"status": "success", "memories": hits})
+
+                elif tool_name == "store_insight":
+                    from ..models import AgentMemory
+                    AgentMemory.objects.create(
+                        session=self.session,
+                        key=tool_input.get("key", f"insight_{datetime.now().strftime('%H%M%S')}"),
+                        value={"content": tool_input.get("value", ""), "ts": datetime.now().isoformat()},
+                        importance_score=float(tool_input.get("importance", 0.7)),
+                    )
+                    return json.dumps({"status": "success"})
+
+                elif tool_name == "plan_task_decomposition":
+                    from .langchain_coordinator import plan_task_decomposition
+                    r = plan_task_decomposition.invoke({
+                        "task_description": tool_input.get("task_description", ""),
+                        "available_agents": tool_input.get("available_agents", agent_list),
+                    })
+                    return json.dumps(r)
+
+                else:
+                    return json.dumps({"error": f"Unknown tool: {tool_name}"})
+            except Exception as e:
+                return json.dumps({"error": str(e)})
+
+        # ── ReAct loop ───────────────────────────────────────────────────────
+        max_steps = 10
+        steps_taken = []
+        final_answer = None
+
+        for step in range(max_steps):
+            llm_resp = self.groq_service.chat_completion(
+                conversation, max_tokens=1024, temperature=0.7
+            )
+            raw = llm_resp.get('content', '') or ''
+            conversation.append({"role": "assistant", "content": raw})
+            logger.debug(f"[ReAct step {step+1}]\n{raw}")
+
+            # ── Parse Final Answer ───────────────────────────────────────────
+            if "Final Answer:" in raw:
+                final_answer = raw.split("Final Answer:", 1)[1].strip()
+                break
+
+            # ── Parse Action + Action Input ──────────────────────────────────
+            action_match = re.search(r"Action:\s*(.+)", raw)
+            input_match = re.search(r"Action Input:\s*(\{.*?\}|\[.*?\])", raw, re.DOTALL)
+
+            if action_match:
+                tool_name = action_match.group(1).strip()
+                try:
+                    tool_args = json.loads(input_match.group(1)) if input_match else {}
+                except json.JSONDecodeError:
+                    tool_args = {}
+
+                observation = _execute_tool(tool_name, tool_args)
+                steps_taken.append({
+                    "step": step + 1,
+                    "tool": tool_name,
+                    "input": tool_args,
+                    "observation": observation[:400],
+                })
+                conversation.append({
+                    "role": "user",
+                    "content": f"Observation: {observation}",
+                })
+            else:
+                # No action found — the LLM may already be concluding
+                if raw.strip():
+                    final_answer = raw.strip()
+                break
+
+        if not final_answer:
+            final_answer = conversation[-1].get("content", "Task completed.")
+
         return {
-            'response': response,
-            'agent_type': 'orchestrator',
-            'coordination_actions': []
+            "response": {"content": final_answer},
+            "agent_type": "orchestrator",
+            "react_steps": len(steps_taken),
+            "coordination_actions": steps_taken,
         }
     
     def _execute_vision_task(self, task: Task) -> Dict[str, Any]:
@@ -310,48 +656,160 @@ class AgentCoordinator:
         }
     
     def _execute_reasoning_task(self, task: Task) -> Dict[str, Any]:
-        """Execute reasoning-specific task with memory integration"""
+        """Execute reasoning task with RAG retrieval, memory, and chain-of-thought."""
         input_data = task.input_data
-        
-        # Retrieve relevant memories
         agent = task.assigned_agent
-        relevant_memories = self._get_relevant_memories(agent, input_data.get('content', ''))
-        
-        response = self.groq_service.generate_agent_response(
-            'reasoning',
+        query = input_data.get('content', '')
+
+        # ── RAG: retrieve relevant documents ─────────────────────────────────
+        rag_context = ""
+        rag_sources: List[Dict] = []
+        rag = _get_rag_system()
+        if rag:
+            try:
+                rag_context = rag.retrieve_context(query, top_k=3)
+                source_docs = rag.vector_db.search(query, top_k=3)
+                rag_sources = [{'id': d['id'], 'snippet': d['text'][:150]} for d in source_docs]
+            except Exception as e:
+                logger.debug(f"RAG retrieval failed: {e}")
+
+        # ── Memory: retrieve relevant memories ──────────────────────────────
+        relevant_memories = self._get_relevant_memories(agent, query)
+        memory_ctx = [
+            {"key": m.key, "value": m.value, "importance": float(m.importance_score)}
+            for m in relevant_memories
+        ]
+
+        # ── Multi-turn reasoning: plan then execute ──────────────────────────
+        planning_msgs: List[Dict] = [
+            {"role": "system", "content": self.groq_service._get_reasoning_prompt()},
             {
-                'session_context': self.session.context,
-                'task_context': input_data,
-                'relevant_memories': relevant_memories
+                "role": "user",
+                "content": (
+                    f"Retrieved knowledge:\n{rag_context}\n\n"
+                    f"Prior memory context:\n{json.dumps(memory_ctx)}\n\n"
+                    f"Task: {query}\n\n"
+                    "First, outline a step-by-step reasoning plan (numbered list). "
+                    "Be explicit about each inference step."
+                ),
             },
-            input_data.get('content', '')
-        )
-        
-        # Store new insights in memory
+        ]
+        plan_response = self.groq_service.chat_completion(planning_msgs)
+        plan_text = plan_response.get('content', '')
+
+        execution_msgs = planning_msgs + [
+            {"role": "assistant", "content": plan_text},
+            {"role": "user", "content": "Now execute your plan and provide the final reasoned answer."},
+        ]
+        response = self.groq_service.chat_completion(execution_msgs)
+
+        # Store new reasoning insight in memory
         self._store_reasoning_memory(agent, response)
-        
+
         return {
+            'reasoning_plan': plan_text,
             'reasoning_response': response,
             'agent_type': 'reasoning',
             'reasoning_steps': self._extract_reasoning_steps(response),
-            'memories_used': len(relevant_memories)
+            'memories_used': len(relevant_memories),
+            'rag_sources': rag_sources,
+            'rag_context_used': bool(rag_context),
         }
-    
+
     def _execute_action_task(self, task: Task) -> Dict[str, Any]:
-        """Execute action-specific task"""
+        """
+        Execute action task:
+        1. Ask the Action LLM to identify which installed plugin (if any) fits the task.
+        2. Execute that plugin via the sandboxed PluginService.
+        3. Feed plugin output back to LLM for a final action report.
+        """
         input_data = task.input_data
-        
-        # This would integrate with MCP tools and external APIs
-        response = self.groq_service.generate_agent_response(
-            'action',
-            {'available_tools': []},
-            input_data.get('content', '')
-        )
-        
+        query = input_data.get('content', '')
+
+        # ── Discover installed plugins for this session/user ─────────────────
+        plugin_descriptions: List[Dict] = []
+        plugin_map: Dict[str, Any] = {}  # name → installation object
+        try:
+            from ..plugin_models import PluginInstallation
+            task.assigned_agent
+            installations = PluginInstallation.objects.filter(
+                is_enabled=True
+            ).select_related('plugin')[:20]
+            for inst in installations:
+                desc = {
+                    'name': inst.plugin.name,
+                    'description': inst.plugin.description,
+                    'category': inst.plugin.category,
+                }
+                plugin_descriptions.append(desc)
+                plugin_map[inst.plugin.name] = inst
+        except Exception as e:
+            logger.debug(f"Plugin discovery failed: {e}")
+
+        # ── Ask LLM which plugin to use (if any) ────────────────────────────
+        action_msgs: List[Dict] = [
+            {"role": "system", "content": self.groq_service._get_action_prompt()},
+            {
+                "role": "user",
+                "content": (
+                    f"Task: {query}\n\n"
+                    f"Available plugins:\n{json.dumps(plugin_descriptions, indent=2)}\n\n"
+                    "If a plugin is suitable, respond with JSON: "
+                    "{\"use_plugin\": \"<name>\", \"input\": {<key:value>}}\n"
+                    "If no plugin fits, respond with JSON: {\"use_plugin\": null, \"steps\": [\"...\"]}"
+                ),
+            },
+        ]
+        action_response = self.groq_service.chat_completion(action_msgs, temperature=0.2, max_tokens=256)
+        action_text = action_response.get('content', '') or ''
+
+        plugin_result = None
+        plugin_name_used = None
+        try:
+            match = re.search(r'\{.*\}', action_text, re.DOTALL)
+            if match:
+                decision = json.loads(match.group())
+                chosen = decision.get('use_plugin')
+                if chosen and chosen in plugin_map:
+                    from .plugin_service import PluginService
+                    success, plugin_result, err = PluginService.execute_plugin(
+                        plugin_map[chosen],
+                        input_data=decision.get('input', {'task': query}),
+                        execution_context={'session_id': str(self.session.id)},
+                    )
+                    plugin_name_used = chosen
+                    if not success:
+                        logger.warning(f"Plugin '{chosen}' failed: {err}")
+                        plugin_result = {'error': err}
+        except Exception as e:
+            logger.debug(f"Plugin execution error: {e}")
+
+        # ── Final action report with plugin output (if any) ─────────────────
+        report_msgs = action_msgs + [
+            {"role": "assistant", "content": action_text},
+            {
+                "role": "user",
+                "content": (
+                    f"Plugin execution result: {json.dumps(plugin_result, default=str)}\n\n"
+                    "Provide a concise action report: what was done and the outcome."
+                ) if plugin_result else "No plugin was executed. Describe what actions you would take step by step.",
+            },
+        ]
+        final_response = self.groq_service.chat_completion(report_msgs)
+
+        actions = [
+            line.strip()
+            for line in (final_response.get('content', '') or '').split('\n')
+            if line.strip() and line.strip()[0].isdigit()
+        ]
+
         return {
-            'action_response': response,
+            'action_response': final_response,
             'agent_type': 'action',
-            'actions_taken': []
+            'actions_taken': actions,
+            'plugin_used': plugin_name_used,
+            'plugin_result': plugin_result,
+            'plugins_available': len(plugin_descriptions),
         }
     
     def _execute_memory_task(self, task: Task) -> Dict[str, Any]:
@@ -419,6 +877,67 @@ class AgentCoordinator:
                 "result": result
             }
         )
+
+    def _trigger_rl_update(self, task: Task, result: Dict[str, Any]):
+        """
+        Auto-trigger Q-learning update after every task completion.
+        Feeds the outcome back into the agent's learning profile so the
+        system actually improves its decision-making over time.
+        """
+        try:
+            from agent_learning.models import AgentLearningProfile, ReinforcementState
+            from agent_learning.services import RLEngine
+
+            agent = task.assigned_agent
+            success = task.status == TaskStatus.COMPLETED
+
+            # Get or create learning profile for this agent (FK = agent instance)
+            profile, _ = AgentLearningProfile.objects.get_or_create(
+                agent=agent,
+                defaults={
+                    'algorithm': 'q_learning',
+                    'learning_rate': 0.1,
+                    'discount_factor': 0.95,
+                    'total_tasks_completed': 0,
+                    'success_rate': 0.5,
+                },
+            )
+
+            # Increment task counter
+            profile.total_tasks_completed += 1
+            profile.save(update_fields=['total_tasks_completed'])
+
+            # Build state representation
+            state = {
+                'agent_type': agent.type,
+                'task_type': getattr(task, 'task_type', 'generic'),
+                'session_id': str(self.session.id),
+            }
+            action = {'task_id': str(task.id), 'agent_type': agent.type}
+            reward = 1.0 if success else -0.5
+            task_type = getattr(task, 'task_type', None) or agent.type or 'generic'
+
+            # Create a reinforcement state record (field is state_representation)
+            rl_state = ReinforcementState.objects.create(
+                learning_profile=profile,
+                session=self.session,
+                state_representation=state,
+                action_taken=action,
+                reward=reward,
+                next_state={},
+                success=success,
+                q_value=0.0,
+                expected_q_value=0.0,
+                task_type=task_type,
+            )
+
+            # Run Q-learning update
+            engine = RLEngine(profile)
+            new_q = engine.update_q_values(rl_state)
+            logger.info(f"RL update: agent={agent.name}, success={success}, new_q={new_q:.3f}")
+
+        except Exception as e:
+            logger.debug(f"RL update skipped: {e}")
     
     def _extract_reasoning_steps(self, response: Dict[str, Any]) -> List[str]:
         """Extract reasoning steps from response"""

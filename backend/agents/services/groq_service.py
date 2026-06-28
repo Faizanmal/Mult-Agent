@@ -214,6 +214,28 @@ Please format ALL your responses this way. Never use plain text paragraphs."""
         ]
         
         return self.chat_completion(messages)
+
+    def generate_response(
+        self,
+        prompt: str,
+        model: str = None,
+        temperature: float = None,
+        max_tokens: int = None
+    ) -> str:
+        """
+        Compatibility helper for workflow orchestrators that expect a raw string response.
+        """
+        response = self.chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            model=model,
+            temperature=temperature if temperature is not None else self.default_temperature,
+            max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
+        )
+
+        if response.get('error'):
+            raise RuntimeError(response['error'])
+
+        return response.get('content') or ''
     
     def _get_orchestrator_prompt(self) -> str:
         return """You are an Orchestrator Agent responsible for coordinating multiple specialized agents.
@@ -317,20 +339,104 @@ Please format ALL your responses this way. Never use plain text paragraphs."""
     
     def _analyze_file(self, file_path: str, file_type: str) -> Dict[str, Any]:
         """
-        Analyze uploaded file based on its type
-        
-        Args:
-            file_path: Path to the file
-            file_type: Type of the file
-        
-        Returns:
-            File analysis results
+        Analyze an uploaded file using Groq.
+        - Text/CSV/JSON: read content and pass to Groq for analysis.
+        - Images: describe via Groq vision prompt with base64 encoding.
+        - Other binary files: summarise file metadata only.
         """
-        # This is a placeholder - actual implementation would use
-        # specialized services for different file types
-        return {
+        import os
+        import base64
+
+        result: Dict[str, Any] = {
             'file_type': file_type,
             'file_path': file_path,
-            'analysis': 'File analysis not yet implemented',
-            'metadata': {}
+            'analysis': None,
+            'metadata': {},
         }
+
+        if not os.path.exists(file_path):
+            result['analysis'] = 'File not found'
+            return result
+
+        file_size = os.path.getsize(file_path)
+        result['metadata']['file_size_bytes'] = file_size
+        result['metadata']['file_name'] = os.path.basename(file_path)
+
+        try:
+            # ── Text-based files ──────────────────────────────────────────
+            text_extensions = {
+                '.txt', '.md', '.csv', '.json', '.xml', '.yaml', '.yml',
+                '.log', '.html', '.htm', '.py', '.js', '.ts', '.java',
+                '.cpp', '.c', '.h', '.css', '.sh', '.env',
+            }
+            ext = os.path.splitext(file_path)[1].lower()
+
+            if ext in text_extensions or file_type in ('text', 'csv', 'json', 'xml'):
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as fh:
+                    content = fh.read(8000)  # Limit to 8 KB to stay within token budget
+                result['metadata']['chars_read'] = len(content)
+
+                messages = [
+                    {
+                        'role': 'system',
+                        'content': (
+                            'You are a file analysis assistant. Analyse the provided file content '
+                            'and return a concise summary covering: file purpose, key data points, '
+                            'structure, and any notable observations.'
+                        ),
+                    },
+                    {
+                        'role': 'user',
+                        'content': f'File name: {result["metadata"]["file_name"]}\n\nContent:\n{content}',
+                    },
+                ]
+                resp = self.chat_completion(messages)
+                result['analysis'] = resp.get('content', 'Analysis failed')
+
+            # ── Image files ───────────────────────────────────────────────
+            elif ext in {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'} or file_type == 'image':
+                if file_size <= 4 * 1024 * 1024:  # Only encode if ≤ 4 MB
+                    with open(file_path, 'rb') as fh:
+                        b64 = base64.b64encode(fh.read()).decode()
+                    mime = {
+                        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                        '.png': 'image/png', '.gif': 'image/gif',
+                        '.bmp': 'image/bmp', '.webp': 'image/webp',
+                    }.get(ext, 'image/jpeg')
+
+                    messages = [
+                        {
+                            'role': 'system',
+                            'content': (
+                                'You are a Vision Agent. Describe this image in detail: '
+                                'objects, colours, text, layout, and any noteworthy features.'
+                            ),
+                        },
+                        {
+                            'role': 'user',
+                            'content': [
+                                {
+                                    'type': 'image_url',
+                                    'image_url': {'url': f'data:{mime};base64,{b64}'},
+                                }
+                            ],
+                        },
+                    ]
+                    # Use llama-3.2-vision model for image analysis
+                    resp = self.chat_completion(messages, model='llama-3.2-11b-vision-preview')
+                    result['analysis'] = resp.get('content', 'Image analysis failed')
+                else:
+                    result['analysis'] = f'Image file too large for inline analysis ({file_size} bytes)'
+
+            # ── Fallback: metadata only ───────────────────────────────────
+            else:
+                result['analysis'] = (
+                    f'Binary file of type "{file_type}" ({file_size} bytes). '
+                    'Content analysis is not supported for this format.'
+                )
+
+        except Exception as e:
+            logger.error(f'File analysis error for {file_path}: {e}')
+            result['analysis'] = f'Analysis error: {str(e)}'
+
+        return result

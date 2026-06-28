@@ -277,16 +277,71 @@ class NotificationService:
     
     @staticmethod
     def _send_push(notification: Notification):
-        """Send push notification"""
-        # Implement push notification logic
-        # This would integrate with services like Firebase, OneSignal, etc.
-        pass
-    
+        """
+        Send a web-push notification via the Django Channels layer (WebSocket broadcast).
+        Falls back gracefully if the channel layer is unavailable.
+        """
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+
+            channel_layer = get_channel_layer()
+            if channel_layer is None:
+                logger.warning('Push notification skipped: channel layer not configured')
+                return
+
+            async_to_sync(channel_layer.group_send)(
+                f'user_{notification.user.id}',
+                {
+                    'type': 'push_notification',
+                    'notification_id': str(notification.id),
+                    'title': notification.title,
+                    'message': notification.message,
+                    'notification_type': notification.type,
+                    'action_url': notification.action_url,
+                    'timestamp': timezone.now().isoformat(),
+                },
+            )
+        except Exception as e:
+            logger.error(f'Push notification failed for user {notification.user.id}: {e}')
+
     @staticmethod
     def _send_sms(notification: Notification):
-        """Send SMS notification"""
-        # Implement SMS logic using Twilio, AWS SNS, etc.
-        pass
+        """
+        Send an SMS notification.
+        Uses Twilio if TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER
+        are set in settings; silently skips if not configured.
+        """
+        from django.conf import settings as django_settings
+
+        account_sid = getattr(django_settings, 'TWILIO_ACCOUNT_SID', None)
+        auth_token = getattr(django_settings, 'TWILIO_AUTH_TOKEN', None)
+        from_number = getattr(django_settings, 'TWILIO_FROM_NUMBER', None)
+
+        if not all([account_sid, auth_token, from_number]):
+            logger.info('SMS notification skipped: Twilio credentials not configured')
+            return
+
+        phone = getattr(notification.user, 'phone_number', None)
+        if not phone:
+            logger.warning(f'SMS skipped: user {notification.user.id} has no phone number')
+            return
+
+        try:
+            resp = requests.post(
+                f'https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json',
+                auth=(account_sid, auth_token),
+                data={
+                    'From': from_number,
+                    'To': phone,
+                    'Body': f'{notification.title}: {notification.message}',
+                },
+                timeout=10,
+            )
+            if resp.status_code not in (200, 201):
+                logger.error(f'Twilio SMS failed ({resp.status_code}): {resp.text[:200]}')
+        except Exception as e:
+            logger.error(f'SMS notification failed for user {notification.user.id}: {e}')
     
     @staticmethod
     def _send_slack(notification: Notification):
@@ -381,10 +436,63 @@ class AlertService:
     
     @staticmethod
     def _get_metric_value(metric: str) -> Optional[float]:
-        """Get current value of a metric"""
-        # This would integrate with your metrics collection
-        # For now, return None as placeholder
-        return None
+        """
+        Resolve a named metric to its current value by querying live DB data.
+
+        Supported metric names:
+          task_completion_rate, task_failure_rate, active_agents,
+          active_sessions, pending_tasks, failed_tasks_1h, messages_1h
+        """
+        from django.utils import timezone as tz
+        from datetime import timedelta
+        from ..models import Task, TaskStatus, Agent, AgentStatus, Session, Message
+
+        try:
+            now = tz.now()
+
+            if metric == 'task_completion_rate':
+                total = Task.objects.count()
+                if total == 0:
+                    return 0.0
+                completed = Task.objects.filter(status=TaskStatus.COMPLETED).count()
+                return round(completed / total, 4)
+
+            elif metric == 'task_failure_rate':
+                total = Task.objects.count()
+                if total == 0:
+                    return 0.0
+                failed = Task.objects.filter(status=TaskStatus.FAILED).count()
+                return round(failed / total, 4)
+
+            elif metric == 'active_agents':
+                return float(Agent.objects.filter(status=AgentStatus.ACTIVE).count())
+
+            elif metric == 'active_sessions':
+                return float(Session.objects.filter(is_active=True).count())
+
+            elif metric == 'pending_tasks':
+                return float(Task.objects.filter(status=TaskStatus.PENDING).count())
+
+            elif metric == 'failed_tasks_1h':
+                cutoff = now - timedelta(hours=1)
+                return float(
+                    Task.objects.filter(
+                        status=TaskStatus.FAILED,
+                        completed_at__gte=cutoff,
+                    ).count()
+                )
+
+            elif metric == 'messages_1h':
+                cutoff = now - timedelta(hours=1)
+                return float(Message.objects.filter(created_at__gte=cutoff).count())
+
+            else:
+                logger.warning(f"Unknown metric '{metric}' in AlertService._get_metric_value")
+                return None
+
+        except Exception as exc:
+            logger.error(f"_get_metric_value failed for '{metric}': {exc}")
+            return None
     
     @staticmethod
     def _trigger_alert(rule: AlertRule, metric_value: float):

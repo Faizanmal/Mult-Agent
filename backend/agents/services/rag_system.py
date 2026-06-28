@@ -4,10 +4,10 @@ Advanced AI Features: RAG, Vector Database, Semantic Search
 import os
 import logging
 from typing import List, Dict, Optional, Any
-from sentence_transformers import SentenceTransformer
-import chromadb
-from chromadb.config import Settings
 from django.conf import settings
+
+# sentence_transformers and chromadb are imported lazily inside classes/methods
+# to avoid triggering the tf-keras/Keras-3 incompatibility at module import time.
 
 logger = logging.getLogger(__name__)
 
@@ -26,26 +26,34 @@ class VectorDatabase:
         self._initialize()
     
     def _initialize(self):
-        """Initialize ChromaDB and embedding model"""
+        """Initialize ChromaDB and embedding model (lazy-imports heavy deps)."""
         try:
+            import chromadb
+            from sentence_transformers import SentenceTransformer
+
             # Initialize ChromaDB client
             persist_directory = os.path.join(settings.BASE_DIR, 'vector_db')
             os.makedirs(persist_directory, exist_ok=True)
-            
-            self.client = chromadb.Client(Settings(
-                chroma_db_impl="duckdb+parquet",
-                persist_directory=persist_directory
-            ))
-            
+
+            # ChromaDB >= 0.4 uses PersistentClient; fall back for older installs
+            if hasattr(chromadb, 'PersistentClient'):
+                self.client = chromadb.PersistentClient(path=persist_directory)
+            else:
+                from chromadb.config import Settings as ChromaSettings
+                self.client = chromadb.Client(ChromaSettings(
+                    chroma_db_impl='duckdb+parquet',
+                    persist_directory=persist_directory,
+                ))
+
             # Get or create collection
             self.collection = self.client.get_or_create_collection(
                 name=self.collection_name,
                 metadata={"hnsw:space": "cosine"}
             )
-            
+
             # Initialize embedding model
             self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            
+
             logger.info(f"Vector database initialized: {self.collection_name}")
             
         except Exception as e:
@@ -392,11 +400,49 @@ class DocumentProcessor:
         lines = text.split('\n')
         if lines and lines[0].startswith('#'):
             metadata['title'] = lines[0].replace('#', '').strip()
-        
+
         return metadata
 
 
-# Global instances
-vector_db = VectorDatabase()
-rag_system = RAGSystem(vector_db)
-semantic_search = SemanticSearch(vector_db)
+# Global singletons — created lazily on first access, not at import time.
+# This avoids the sentence_transformers / tf-keras incompatibility at startup.
+_vector_db = None
+_rag_system = None
+_semantic_search = None
+
+
+def _get_or_create_globals():
+    global _vector_db, _rag_system, _semantic_search
+    if _vector_db is None:
+        _vector_db = VectorDatabase()
+        _rag_system = RAGSystem(_vector_db)
+        _semantic_search = SemanticSearch(_vector_db)
+    return _vector_db, _rag_system, _semantic_search
+
+
+# Backwards-compatible names used elsewhere in the codebase.
+# Accessing these triggers lazy initialisation.
+class _LazyProxy:
+    """Proxy that initialises the real object on first attribute access."""
+    def __init__(self, getter):
+        object.__setattr__(self, '_getter', getter)
+        object.__setattr__(self, '_obj', None)
+
+    def _ensure(self):
+        if object.__getattribute__(self, '_obj') is None:
+            _get_or_create_globals()
+            getter = object.__getattribute__(self, '_getter')
+            object.__setattr__(self, '_obj', getter())
+
+    def __getattr__(self, name):
+        self._ensure()
+        return getattr(object.__getattribute__(self, '_obj'), name)
+
+    def __setattr__(self, name, value):
+        self._ensure()
+        setattr(object.__getattribute__(self, '_obj'), name, value)
+
+
+vector_db = _LazyProxy(lambda: _vector_db)
+rag_system = _LazyProxy(lambda: _rag_system)
+semantic_search = _LazyProxy(lambda: _semantic_search)

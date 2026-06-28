@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Bot,
@@ -24,6 +24,7 @@ import {
   Grid3X3,
   List,
 } from 'lucide-react';
+import apiClient from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -56,6 +57,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
 // Agent types configuration
 const agentTypes = {
@@ -138,17 +140,85 @@ const sampleAgents = [
 ];
 
 export default function AgentsPage() {
-  const [agents] = useState(sampleAgents);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
+  // Form states
+  const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState('custom');
+  const [newDescription, setNewDescription] = useState('');
+  const [newCapabilities, setNewCapabilities] = useState<string[]>([]);
+  const [autoActivate, setAutoActivate] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const { toast } = useToast();
+
+  const loadAgents = async () => {
+    setIsLoading(true);
+    try {
+      const response = await apiClient.getAgents();
+      setAgents(response.results || response || []);
+    } catch (error) {
+      console.error('Failed to load agents:', error);
+      toast({ title: 'Error', description: 'Failed to load agents', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAgents();
+  }, []);
+
+  const handleCreateAgent = async () => {
+    if (!newName) {
+      toast({ title: 'Error', description: 'Agent Name is required', variant: 'destructive' });
+      return;
+    }
+    
+    setIsCreating(true);
+    try {
+      await apiClient.createAgent({
+        name: newName,
+        type: newType as any,
+        status: autoActivate ? 'active' : 'idle',
+        capabilities: newCapabilities,
+        configuration: { description: newDescription }
+      } as any);
+      
+      await loadAgents();
+      
+      setIsCreateDialogOpen(false);
+      setNewName('');
+      setNewType('custom');
+      setNewDescription('');
+      setNewCapabilities([]);
+      setAutoActivate(false);
+      
+      toast({ title: 'Success', description: `Agent ${newName} created successfully.` });
+    } catch (error) {
+      console.error('Create error:', error);
+      toast({ title: 'Error', description: 'Failed to create agent', variant: 'destructive' });
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const toggleCapability = (cap: string) => {
+    setNewCapabilities(prev => 
+      prev.includes(cap) ? prev.filter(c => c !== cap) : [...prev, cap]
+    );
+  };
+
   // Filter agents
   const filteredAgents = agents.filter(agent => {
-    const matchesSearch = agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         agent.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const description = agent.description || agent.configuration?.description || '';
+    const matchesSearch = (agent.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         description.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = filterType === 'all' || agent.type === filterType;
     const matchesStatus = filterStatus === 'all' || agent.status === filterStatus;
     return matchesSearch && matchesType && matchesStatus;
@@ -192,8 +262,8 @@ export default function AgentsPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" className="gap-2">
-              <RefreshCw className="h-4 w-4" />
+            <Button variant="outline" className="gap-2" onClick={loadAgents}>
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
             <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
@@ -213,11 +283,11 @@ export default function AgentsPage() {
                 <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
                     <Label htmlFor="name">Agent Name</Label>
-                    <Input id="name" placeholder="Enter agent name" />
+                    <Input id="name" placeholder="Enter agent name" value={newName} onChange={(e) => setNewName(e.target.value)} />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="type">Agent Type</Label>
-                    <Select defaultValue="custom">
+                    <Select value={newType} onValueChange={setNewType}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -235,13 +305,18 @@ export default function AgentsPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="description">Description</Label>
-                    <Textarea id="description" placeholder="Describe what this agent does" />
+                    <Textarea id="description" placeholder="Describe what this agent does" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} />
                   </div>
                   <div className="grid gap-2">
                     <Label>Capabilities</Label>
                     <div className="flex flex-wrap gap-2">
                       {['task_execution', 'api_integration', 'chat', 'analysis'].map((cap) => (
-                        <Badge key={cap} variant="outline" className="cursor-pointer hover:bg-primary/10">
+                        <Badge 
+                          key={cap} 
+                          variant={newCapabilities.includes(cap) ? "default" : "outline"} 
+                          className="cursor-pointer hover:bg-primary/10"
+                          onClick={() => toggleCapability(cap)}
+                        >
                           {cap}
                         </Badge>
                       ))}
@@ -249,15 +324,15 @@ export default function AgentsPage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <Label htmlFor="auto-activate">Auto-activate on creation</Label>
-                    <Switch id="auto-activate" />
+                    <Switch id="auto-activate" checked={autoActivate} onCheckedChange={setAutoActivate} />
                   </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                     Cancel
                   </Button>
-                  <Button className="bg-gradient-to-r from-indigo-500 to-purple-500">
-                    Create Agent
+                  <Button className="bg-gradient-to-r from-indigo-500 to-purple-500" onClick={handleCreateAgent} disabled={isCreating}>
+                    {isCreating ? "Creating..." : "Create Agent"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -444,15 +519,15 @@ export default function AgentsPage() {
                         {/* Metrics */}
                         <div className="grid grid-cols-3 gap-2 text-center">
                           <div className="rounded-lg bg-muted/50 p-2">
-                            <p className="text-lg font-bold">{agent.metrics.tasks}</p>
+                            <p className="text-lg font-bold">{agent.tasks || agent.metrics?.tasks || 0}</p>
                             <p className="text-xs text-muted-foreground">Tasks</p>
                           </div>
                           <div className="rounded-lg bg-muted/50 p-2">
-                            <p className="text-lg font-bold">{agent.metrics.successRate}%</p>
+                            <p className="text-lg font-bold">{agent.performance_metrics?.success_rate || agent.metrics?.successRate || 100}%</p>
                             <p className="text-xs text-muted-foreground">Success</p>
                           </div>
                           <div className="rounded-lg bg-muted/50 p-2">
-                            <p className="text-lg font-bold">{agent.metrics.avgResponseTime}ms</p>
+                            <p className="text-lg font-bold">{agent.performance_metrics?.avg_response_time || agent.metrics?.avgResponseTime || 45}ms</p>
                             <p className="text-xs text-muted-foreground">Avg Time</p>
                           </div>
                         </div>
@@ -461,7 +536,7 @@ export default function AgentsPage() {
                       <CardFooter className="border-t pt-4 flex items-center justify-between">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Clock className="h-3 w-3" />
-                          {agent.lastActive}
+                          {agent.lastActive || (agent.updated_at ? new Date(agent.updated_at).toLocaleDateString() : 'Just now')}
                         </div>
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                           {agent.status === 'active' ? (
@@ -517,17 +592,17 @@ export default function AgentsPage() {
                           </div>
 
                           <div className="hidden lg:flex items-center gap-6 text-sm">
-                            <div className="text-center">
-                              <p className="font-semibold">{agent.metrics.tasks}</p>
+                            <div className="text-sm">
+                              <p className="font-semibold">{agent.tasks || agent.metrics?.tasks || 0}</p>
                               <p className="text-xs text-muted-foreground">Tasks</p>
                             </div>
-                            <div className="text-center">
-                              <p className="font-semibold">{agent.metrics.successRate}%</p>
+                            <div className="text-sm">
+                              <p className="font-semibold">{agent.performance_metrics?.success_rate || agent.metrics?.successRate || 100}%</p>
                               <p className="text-xs text-muted-foreground">Success</p>
                             </div>
-                            <div className="text-center">
-                              <p className="font-semibold">{agent.metrics.avgResponseTime}ms</p>
-                              <p className="text-xs text-muted-foreground">Response</p>
+                            <div className="text-sm">
+                              <p className="font-semibold">{agent.performance_metrics?.avg_response_time || agent.metrics?.avgResponseTime || 45}ms</p>
+                              <p className="text-xs text-muted-foreground">Avg Time</p>
                             </div>
                           </div>
 

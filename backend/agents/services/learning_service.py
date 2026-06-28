@@ -312,17 +312,99 @@ class AdaptiveCoordinationService:
     
     @staticmethod
     def analyze_patterns_and_generate_rules(creator, min_samples: int = 50):
-        """Analyze historical data and generate new coordination rules"""
-        
-        # Analyze successful coordination sessions
-        # This would integrate with your coordination session data
-        # For now, we'll create a placeholder implementation
-        
-        generated_rules = []
-        
-        # Example: Analyze task complexity vs strategy success
-        # In a real implementation, query coordination sessions grouped by strategy
-        
+        """
+        Analyze historical coordination sessions and auto-generate rules
+        for strategy combinations that show consistently high success rates.
+        """
+        from Multi_agents_cordination.models import AgentCoordinationSession, CoordinationMetric
+        from django.db.models import Avg, Count
+
+        generated_rules: List[AdaptiveCoordinationRule] = []
+
+        # ── Aggregate completed sessions grouped by strategy ──────────────────
+        strategy_stats = (
+            AgentCoordinationSession.objects
+            .filter(is_active=False, completed_at__isnull=False)
+            .values('strategy')
+            .annotate(
+                session_count=Count('id'),
+                avg_duration=Avg('metrics__metric_value',
+                                 filter=Q(metrics__metric_name='duration_ms')),
+            )
+            .filter(session_count__gte=min_samples)
+        )
+
+        for stat in strategy_stats:
+            strategy = stat['strategy']
+            session_count = stat['session_count']
+            avg_duration_ms = stat['avg_duration'] or 0.0
+
+            # Determine complexity range from recorded agent counts
+            agent_counts = list(
+                CoordinationMetric.objects
+                .filter(
+                    coordination_session__strategy=strategy,
+                    metric_name='agents_count',
+                )
+                .values_list('metric_value', flat=True)
+            )
+            if not agent_counts:
+                continue
+
+            min_agents = max(1, int(min(agent_counts)))
+            max_agents = max(min_agents, int(max(agent_counts)))
+
+            # Success proxy: sessions that completed with no 'error' metrics
+            error_sessions = (
+                CoordinationMetric.objects
+                .filter(
+                    coordination_session__strategy=strategy,
+                    metric_name='error',
+                )
+                .values('coordination_session_id')
+                .distinct()
+                .count()
+            )
+            success_rate = max(0.0, (session_count - error_sessions) / session_count)
+
+            # Only create a rule if strategy is reliably successful
+            if success_rate < 0.6:
+                continue
+
+            # Derive complexity score from average duration (simple heuristic)
+            if avg_duration_ms < 2000:
+                complexity_min, complexity_max = 0, 40
+            elif avg_duration_ms < 8000:
+                complexity_min, complexity_max = 30, 70
+            else:
+                complexity_min, complexity_max = 60, 100
+
+            rule_name = f"auto_{strategy}_{min_agents}_{max_agents}_agents"
+
+            # Skip if an identical auto-generated rule already exists
+            if AdaptiveCoordinationRule.objects.filter(
+                name=rule_name, is_auto_generated=True
+            ).exists():
+                continue
+
+            rule = AdaptiveCoordinationRule.objects.create(
+                name=rule_name,
+                description=(
+                    f"Auto-generated from {session_count} sessions. "
+                    f"Strategy '{strategy}' had {success_rate:.0%} success rate."
+                ),
+                task_complexity_min=complexity_min,
+                task_complexity_max=complexity_max,
+                agent_count_min=min_agents,
+                agent_count_max=max_agents,
+                task_types=['*'],
+                recommended_strategy=strategy,
+                strategy_parameters={'avg_duration_ms': round(avg_duration_ms, 1)},
+                is_auto_generated=True,
+                created_by=creator,
+            )
+            generated_rules.append(rule)
+
         return generated_rules
 
 

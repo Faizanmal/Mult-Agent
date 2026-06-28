@@ -1,4 +1,6 @@
 import logging
+import json
+import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from langchain.agents import AgentExecutor, create_tool_calling_agent
@@ -12,27 +14,242 @@ from .. import models
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..models import Agent, Message
+    from ..models import Message
 from .groq_service import GroqService
 from .enhanced_agent_coordinator import EnhancedAgentCoordinator
 
 logger = logging.getLogger(__name__)
 
-# Define tools for agent communication
+
+def _invoke_agent_via_groq(agent_type: str, task: str, context: str = "") -> str:
+    """
+    Helper: calls Groq API with the correct agent system prompt and returns the raw text response.
+    This is the real execution that makes agents actually DO something.
+    """
+    from groq import Groq
+
+    agent_prompts = {
+        "orchestrator": (
+            "You are an Orchestrator Agent. Your job is to analyse requests, decompose them "
+            "into subtasks, coordinate specialist agents, and synthesise their outputs into a "
+            "single coherent answer. Think step-by-step and be explicit about your reasoning."
+        ),
+        "reasoning": (
+            "You are a Reasoning Agent. Apply rigorous logical analysis, break problems into "
+            "clear steps, and show every inference. Always justify your conclusions."
+        ),
+        "vision": (
+            "You are a Vision Agent. Analyse visual content, describe images in detail, "
+            "extract text (OCR), detect objects, and reason about visual patterns."
+        ),
+        "action": (
+            "You are an Action Agent. Execute concrete tasks, call external tools, "
+            "perform operations, and report results precisely. Be specific and actionable."
+        ),
+        "memory": (
+            "You are a Memory Agent. Retrieve, store, and organise contextual information. "
+            "Summarise what you know and flag gaps that need filling."
+        ),
+    }
+
+    system_prompt = agent_prompts.get(
+        agent_type, "You are a specialised AI assistant. Be helpful and precise."
+    )
+
+    messages_payload = [{"role": "system", "content": system_prompt}]
+    if context:
+        messages_payload.append({"role": "user", "content": f"Context:\n{context}\n\nTask:\n{task}"})
+    else:
+        messages_payload.append({"role": "user", "content": task})
+
+    client = Groq(api_key=settings.GROQ_API_KEY)
+    model = settings.GROQ_CONFIG.get("MODEL", "llama-3.3-70b-versatile")
+
+    response = client.chat.completions.create(
+        messages=messages_payload,
+        model=model,
+        temperature=0.7,
+        max_tokens=1024,
+    )
+    return response.choices[0].message.content
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Real tools for LangChain AgentExecutor
+# ─────────────────────────────────────────────────────────────────────────────
+
 @tool
 def send_message_to_agent(agent_id: str, content: str, task_id: Optional[str] = None) -> Dict[str, Any]:
-    """Send a message to another agent in the system"""
+    """
+    Send a message to a specific agent and receive their actual response.
+    The agent will process the content using its specialised Groq-powered LLM and return a real answer.
+    """
     try:
-        # In a real implementation, this would send an actual message to the agent
-        # For now, we'll just return a success response
+        from .. import models as agent_models
+
+        # Resolve agent type from DB so we use the right system prompt
+        try:
+            agent = agent_models.Agent.objects.get(id=agent_id)
+            agent_type = str(agent.type)
+        except Exception:
+            agent_type = "orchestrator"
+
+        # Actually invoke the agent
+        agent_response = _invoke_agent_via_groq(agent_type, content)
+
+        # Persist result to task output_data if task_id provided
+        if task_id:
+            try:
+                task = agent_models.Task.objects.get(id=task_id)
+                existing = task.output_data or {}
+                existing[f"agent_{agent_id}_response"] = agent_response
+                task.output_data = existing
+                task.save(update_fields=["output_data"])
+            except Exception:
+                pass
+
         return {
             "status": "success",
-            "message": f"Message sent to agent {agent_id}: {content}",
             "agent_id": agent_id,
-            "task_id": task_id
+            "agent_type": agent_type,
+            "response": agent_response,
         }
     except Exception as e:
-        return {"error": f"Failed to send message: {str(e)}"}
+        return {"status": "error", "error": f"Failed to communicate with agent: {str(e)}"}
+
+@tool
+def execute_agent_task(agent_type: str, task_description: str, context_json: str = "{}") -> Dict[str, Any]:
+    """
+    Execute a task using a named specialist agent (orchestrator / vision / reasoning / action / memory).
+    The agent is powered by Groq LLM and returns a REAL response — not a stub.
+    Use this to delegate work to the right specialist and get their actual analysis back.
+    context_json: optional JSON string with extra context (e.g. previous results).
+    """
+    try:
+        ctx = json.loads(context_json) if context_json else {}
+        context_str = json.dumps(ctx, indent=2) if ctx else ""
+        result = _invoke_agent_via_groq(agent_type, task_description, context_str)
+        return {
+            "status": "success",
+            "agent_type": agent_type,
+            "result": result,
+            "task": task_description,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e), "agent_type": agent_type}
+
+
+@tool
+def search_memory(query: str, session_id: str = "", agent_id: str = "") -> Dict[str, Any]:
+    """
+    Search the persistent agent memory for context relevant to a query.
+    Returns the top matching memory entries so the orchestrator can incorporate prior knowledge.
+    """
+    try:
+        from .. import models as agent_models
+
+        filters: Dict[str, Any] = {}
+        if session_id:
+            filters["session_id"] = session_id
+        if agent_id:
+            filters["agent_id"] = agent_id
+
+        memories = agent_models.AgentMemory.objects.filter(**filters).order_by(
+            "-importance_score", "-accessed_at"
+        )[:20]
+
+        query_words = set(query.lower().split())
+        scored = []
+        for mem in memories:
+            val_str = str(mem.value).lower()
+            key_str = str(mem.key).lower()
+            score = sum(1 for w in query_words if w in val_str or w in key_str)
+            scored.append((score, mem))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        results = [
+            {
+                "key": mem.key,
+                "value": mem.value,
+                "importance": float(mem.importance_score),
+                "relevance_score": score,
+            }
+            for score, mem in scored[:5]
+        ]
+        return {"status": "success", "memories": results, "count": len(results)}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "memories": []}
+
+
+@tool
+def store_insight(key: str, value: str, session_id: str = "", agent_id: str = "", importance: float = 0.7) -> Dict[str, Any]:
+    """
+    Store an important insight, finding, or intermediate result in agent memory.
+    Use this to persist knowledge that should be referenced later in the conversation.
+    importance: 0.0–1.0 (higher = more important, retrieved first).
+    """
+    try:
+        from .. import models as agent_models
+
+        create_kwargs: Dict[str, Any] = {
+            "key": key,
+            "value": {"content": value, "timestamp": datetime.now().isoformat()},
+            "importance_score": importance,
+        }
+        if session_id:
+            create_kwargs["session_id"] = session_id
+        if agent_id:
+            create_kwargs["agent_id"] = agent_id
+
+        memory = agent_models.AgentMemory.objects.create(**create_kwargs)
+        return {"status": "success", "memory_id": str(memory.id), "key": key}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@tool
+def plan_task_decomposition(task_description: str, available_agents: str) -> Dict[str, Any]:
+    """
+    Use LLM to decompose a complex task into ordered subtasks and assign each to the best agent.
+    Returns a JSON plan with step, agent_type, subtask, and dependencies.
+    Call this before executing multi-step work so each subtask is handled by the right specialist.
+    """
+    try:
+        from groq import Groq
+
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        model = settings.GROQ_CONFIG.get("MODEL", "llama-3.3-70b-versatile")
+
+        system = (
+            'You are a task planning expert. Decompose the task into subtasks and assign each to '
+            'the most appropriate agent. Return ONLY valid JSON:\n'
+            '{"plan":[{"step":1,"agent_type":"reasoning","subtask":"...","depends_on":[]}],'
+            '"reasoning":"why this plan"}'
+        )
+        messages_payload = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": f"Task: {task_description}\n\nAvailable agents: {available_agents}",
+            },
+        ]
+
+        resp = client.chat.completions.create(
+            messages=messages_payload, model=model, temperature=0.2, max_tokens=512
+        )
+        content = resp.choices[0].message.content
+
+        try:
+            plan = json.loads(content)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", content, re.DOTALL)
+            plan = json.loads(match.group()) if match else {"plan": [], "reasoning": content}
+
+        return {"status": "success", "decomposition": plan}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
 
 @tool
 def get_agent_status(agent_id: str) -> Dict[str, Any]:
@@ -176,13 +393,17 @@ class LangchainAgentCoordinator:
             api_key=api_key
         ) if api_key else None
         self.tools = [
-            send_message_to_agent, 
-            get_agent_status, 
-            update_task_status, 
+            send_message_to_agent,
+            execute_agent_task,
+            search_memory,
+            store_insight,
+            plan_task_decomposition,
+            get_agent_status,
+            update_task_status,
             create_subtask,
             get_agent_performance,
             assign_task_to_agent,
-            get_task_details
+            get_task_details,
         ]
         
     def process_message(self, message: 'models.Message') -> Dict[str, Any]:
@@ -248,10 +469,67 @@ class LangchainAgentCoordinator:
         
         return history
     
-    def _determine_relevant_agents(self, message: Message) -> List[Agent]:
-        """Determine which agents are relevant for processing the message"""
-        # Use the enhanced coordinator's smart selection
-        return self.enhanced_coordinator._determine_relevant_agents_enhanced(message)
+    def _determine_relevant_agents(self, message: 'models.Message') -> List['models.Agent']:
+        """
+        Use an LLM call to decide which specialist agents are needed for this message.
+        Falls back to keyword-based selection if LLM is unavailable.
+        """
+        if not self.llm:
+            return self.enhanced_coordinator._determine_relevant_agents_enhanced(message)
+
+        try:
+            session_agents = self.session.agents.filter(is_active=True)
+            agent_list = [
+                f"{a.name} ({a.type}): {', '.join(a.capabilities or [])}"
+                for a in session_agents
+            ]
+
+            planning_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a task router. Given a user message, decide which specialist "
+                        "agent types are needed. Always include 'orchestrator'. Add others ONLY "
+                        "when genuinely required.\n"
+                        "Available types: orchestrator, vision, reasoning, action, memory.\n"
+                        "Return ONLY a JSON array, e.g. [\"orchestrator\",\"reasoning\"]"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"User message: {message.content}\n"
+                        f"Message type: {message.message_type}\n"
+                        f"Available agents:\n" + "\n".join(agent_list)
+                    ),
+                },
+            ]
+
+            response = self.groq_service.chat_completion(
+                planning_messages, max_tokens=64, temperature=0.1
+            )
+            content = response.get("content", "")
+            match = re.search(r"\[.*?\]", content, re.DOTALL)
+            needed_types: List[str] = json.loads(match.group()) if match else ["orchestrator", "reasoning"]
+
+            relevant_agents = []
+            for agent_type in needed_types:
+                agent = session_agents.filter(type=agent_type).first()
+                if agent and agent not in relevant_agents:
+                    relevant_agents.append(agent)
+
+            # Guarantee orchestrator is always present
+            if not relevant_agents:
+                orchestrator = session_agents.filter(type="orchestrator").first()
+                if orchestrator:
+                    relevant_agents.append(orchestrator)
+
+            logger.info(f"LLM selected agents: {[a.type for a in relevant_agents]}")
+            return relevant_agents
+
+        except Exception as e:
+            logger.warning(f"LLM agent planning failed ({e}); falling back to keyword selection")
+            return self.enhanced_coordinator._determine_relevant_agents_enhanced(message)
     
     def _create_agent_task(self, agent: 'models.Agent', message: 'models.Message') -> 'models.Task':
         """Create a task for an agent to process a message"""
@@ -294,45 +572,77 @@ class LangchainAgentCoordinator:
                 # Fallback to the enhanced coordinator
                 return self.enhanced_coordinator.process_message(message)
             agent_executor = create_tool_calling_agent(self.llm, self.tools, prompt)
-            executor = AgentExecutor(agent=agent_executor, tools=self.tools, verbose=True, handle_parsing_errors=True)
+            executor = AgentExecutor(
+                agent=agent_executor,
+                tools=self.tools,
+                verbose=True,
+                handle_parsing_errors=True,
+                max_iterations=15,                  # allow real multi-step reasoning
+                return_intermediate_steps=True,     # capture tool calls + observations
+                early_stopping_method="generate",
+            )
         except Exception as e:
             logger.error(f"Failed to create agent executor: {str(e)}")
-            # Fallback to the enhanced coordinator
             return self.enhanced_coordinator.process_message(message)
-        
-        # Prepare input for the orchestrator
-        agent_list = ", ".join([f"{agent.name} ({agent.type})" for agent in agents])
-        task_list = ", ".join([f"{task.title}" for task in tasks])
-        
-        input_text = f"""
-        Message to process: {message.content}
-        Message type: {message.message_type}
-        
-        Available agents with their roles:
-        {agent_list}
-        
-        Created tasks to coordinate:
-        {task_list}
-        
-        Coordinate these agents following the defined communication protocols and decision-making processes.
-        Use the tools to communicate between agents, manage tasks, and retrieve information.
-        Provide a comprehensive, well-structured response that addresses the original message.
-        """
-        
-        # Execute the workflow
+
+        # Build rich input so the LLM can plan before it acts
+        agent_list = "\n".join([f"  - {a.name} (type={a.type}, id={a.id})" for a in agents])
+        task_list = "\n".join([f"  - [{t.id}] {t.title}: {t.description}" for t in tasks])
+        session_id = str(self.session.id)
+        # Fetch recent memory to give the LLM prior context
+        try:
+            from ..models import AgentMemory
+            recent_memories = AgentMemory.objects.filter(
+                session=self.session
+            ).order_by("-importance_score")[:5]
+            memory_summary = "\n".join(
+                f"  - [{m.key}]: {str(m.value)[:120]}" for m in recent_memories
+            ) or "  (none yet)"
+        except Exception:
+            memory_summary = "  (unavailable)"
+
+        input_text = (
+            f"User message: {message.content}\n"
+            f"Message type: {message.message_type}\n\n"
+            f"Session ID: {session_id}\n\n"
+            f"Available agents:\n{agent_list}\n\n"
+            f"Pending tasks:\n{task_list}\n\n"
+            f"Recent memory context:\n{memory_summary}\n\n"
+            "Instructions:\n"
+            "1. Use plan_task_decomposition to create an execution plan first.\n"
+            "2. Execute each subtask by calling execute_agent_task with the correct agent_type.\n"
+            "3. Use search_memory to retrieve relevant prior knowledge before reasoning.\n"
+            "4. Use store_insight to persist important intermediate findings.\n"
+            "5. Use send_message_to_agent to get a specialist's perspective when needed.\n"
+            "6. Synthesise all results into a coherent final answer for the user."
+        )
+
+        # Execute the agentic loop
         try:
             result = executor.invoke({
                 "input": input_text,
-                "chat_history": conversation_history
+                "chat_history": conversation_history,
             })
-            logger.info("Langchain orchestration completed successfully")
-            
+            logger.info("Langchain ReAct orchestration completed successfully")
+
+            # Capture the intermediate reasoning steps for transparency
+            steps = result.get("intermediate_steps", [])
+            tool_trace = [
+                {
+                    "tool": action.tool,
+                    "input": action.tool_input,
+                    "observation": str(obs)[:300],
+                }
+                for action, obs in steps
+            ]
+
             return {
                 "content": result["output"],
                 "orchestrated": True,
-                "method": "langchain_with_roles",
+                "method": "langchain_react_loop",
                 "agents_coordinated": len(agents),
-                "coordination_protocol": "role-based_with_tools"
+                "reasoning_steps": len(steps),
+                "tool_trace": tool_trace,
             }
         except Exception as e:
             logger.error(f"Langchain orchestration failed: {str(e)}")

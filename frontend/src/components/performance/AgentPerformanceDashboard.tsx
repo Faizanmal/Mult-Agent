@@ -357,7 +357,7 @@ export default function AgentPerformanceDashboard() {
                   outerRadius={80}
                   fill="#8884d8"
                   dataKey="value"
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                  label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`}
                 >
                   {agentDistribution.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={Object.values(agentTypeColors)[index % Object.values(agentTypeColors).length]} />

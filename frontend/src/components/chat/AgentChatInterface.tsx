@@ -411,10 +411,9 @@ export default function AgentChatInterface() {
                       </div>
                     )}
                     {message.sender === 'agent' ? (
-                      <div>
+                      <div className="text-sm prose prose-sm max-w-none dark:prose-invert">
                         <ReactMarkdown 
                           key={message.id}
-                          className="text-sm prose prose-sm max-w-none dark:prose-invert"
                           remarkPlugins={[remarkGfm]}
                         >
                           {message.content}

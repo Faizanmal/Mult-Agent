@@ -350,16 +350,91 @@ class WorkflowEngine:
         return True
     
     async def _execute_parallel_node(self, dag: WorkflowDAG, node: WorkflowNode) -> bool:
-        """Execute parallel node (fan-out to multiple sub-tasks)"""
-        # This is a placeholder for parallel execution logic
-        # In practice, this would spawn multiple sub-workflows
-        return True
-    
+        """Execute parallel node — fan-out to sub-tasks defined in node.inputs['subtasks']."""
+        subtasks = node.inputs.get('subtasks', [])
+        if not subtasks:
+            # Nothing to fan out; treat as a no-op success
+            return True
+
+        async def _run_subtask(subtask_config: Dict) -> Any:
+            action = subtask_config.get('action')
+            if action is None:
+                return None
+            inputs = {**dag.context, **subtask_config.get('inputs', {})}
+            if asyncio.iscoroutinefunction(action):
+                return await action(inputs)
+            return action(inputs)
+
+        results = await asyncio.gather(
+            *[_run_subtask(st) for st in subtasks],
+            return_exceptions=True,
+        )
+
+        outputs: Dict[str, Any] = {}
+        all_ok = True
+        for i, result in enumerate(results):
+            key = subtasks[i].get('output_key', f'subtask_{i}')
+            if isinstance(result, Exception):
+                logger.error(f"Parallel subtask {i} of node {node.id} failed: {result}")
+                outputs[key] = {'error': str(result)}
+                all_ok = False
+            else:
+                outputs[key] = result
+
+        node.outputs = outputs
+        dag.context.update(outputs)
+        return all_ok
+
     async def _execute_agent_node(self, dag: WorkflowDAG, node: WorkflowNode) -> bool:
-        """Execute agent node"""
-        # Placeholder for agent execution
-        # Would integrate with agent system
-        logger.info(f"Agent node {node.id}: {node.metadata.get('agent_type', 'unknown')}")
+        """Execute agent node — invokes a Groq-backed agent and stores its response."""
+        from groq import Groq
+        from django.conf import settings as django_settings
+
+        agent_type = node.metadata.get('agent_type', 'orchestrator')
+        task_content = node.inputs.get('content') or str(dag.context)[:2000]
+
+        _agent_prompts: Dict[str, str] = {
+            'orchestrator': (
+                'You are an Orchestrator Agent. Analyse the request, decompose it into subtasks, '
+                'and synthesise a coherent answer. Think step-by-step.'
+            ),
+            'reasoning': (
+                'You are a Reasoning Agent. Apply rigorous logical analysis, break problems into '
+                'clear steps, and justify every conclusion.'
+            ),
+            'vision': (
+                'You are a Vision Agent. Analyse visual content, extract text, detect objects, '
+                'and reason about visual patterns.'
+            ),
+            'action': (
+                'You are an Action Agent. Execute concrete tasks and report results precisely.'
+            ),
+            'memory': (
+                'You are a Memory Agent. Retrieve and organise contextual information, '
+                'summarise what you know, and flag knowledge gaps.'
+            ),
+        }
+        system_prompt = _agent_prompts.get(
+            agent_type, 'You are a specialised AI assistant. Be helpful and precise.'
+        )
+
+        client = Groq(api_key=django_settings.GROQ_API_KEY)
+        model = django_settings.GROQ_CONFIG.get('MODEL', 'llama-3.3-70b-versatile')
+        response = client.chat.completions.create(
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': task_content},
+            ],
+            model=model,
+            temperature=0.7,
+            max_tokens=1024,
+        )
+
+        output = response.choices[0].message.content
+        node.outputs = {'agent_type': agent_type, 'response': output}
+        output_key = node.metadata.get('output_key', f'{agent_type}_response')
+        dag.context[output_key] = output
+        logger.info(f"Agent node {node.id} ({agent_type}) completed successfully")
         return True
     
     async def _execute_generic_node(self, dag: WorkflowDAG, node: WorkflowNode) -> bool:

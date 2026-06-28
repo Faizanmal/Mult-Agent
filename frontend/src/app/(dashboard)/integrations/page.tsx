@@ -31,6 +31,7 @@ import {
   Clock,
   Activity,
 } from 'lucide-react';
+import apiClient from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -75,90 +76,32 @@ const categories = [
   { id: 'storage', label: 'Storage', icon: Database },
 ];
 
-// Sample integrations
-const integrations = [
-  {
-    id: '1',
-    name: 'OpenAI',
-    description: 'Connect to OpenAI GPT models for advanced AI capabilities',
-    icon: Bot,
-    category: 'ai',
-    status: 'connected',
-    lastSync: '2 min ago',
-    usage: { requests: 15420, limit: 100000 },
-    apiKey: 'sk-xxx...xxx',
-  },
-  {
-    id: '2',
-    name: 'Slack',
-    description: 'Send notifications and interact via Slack channels',
-    icon: MessageSquare,
-    category: 'communication',
-    status: 'connected',
-    lastSync: '5 min ago',
-    usage: { messages: 1250, limit: 10000 },
-  },
-  {
-    id: '3',
-    name: 'Google Analytics',
-    description: 'Track usage metrics and user behavior',
-    icon: BarChart3,
-    category: 'analytics',
-    status: 'connected',
-    lastSync: '1 hour ago',
-    usage: { events: 45000, limit: 500000 },
-  },
-  {
-    id: '4',
-    name: 'GitHub',
-    description: 'Integrate with repositories and actions',
-    icon: GitBranch,
-    category: 'devops',
-    status: 'disconnected',
-    lastSync: null,
-    usage: null,
-  },
-  {
-    id: '5',
-    name: 'AWS S3',
-    description: 'Store and retrieve files from S3 buckets',
-    icon: Cloud,
-    category: 'storage',
-    status: 'connected',
-    lastSync: '30 min ago',
-    usage: { storage: 2.4, limit: 10 },
-  },
-  {
-    id: '6',
-    name: 'Gmail',
-    description: 'Send emails and manage inbox via Gmail API',
-    icon: Mail,
-    category: 'communication',
-    status: 'error',
-    lastSync: '1 day ago',
-    error: 'OAuth token expired',
-    usage: null,
-  },
-  {
-    id: '7',
-    name: 'Anthropic Claude',
-    description: 'Access Claude models for AI conversations',
-    icon: Bot,
-    category: 'ai',
-    status: 'disconnected',
-    lastSync: null,
-    usage: null,
-  },
-  {
-    id: '8',
-    name: 'Google Calendar',
-    description: 'Manage calendar events and schedules',
-    icon: Calendar,
-    category: 'communication',
-    status: 'connected',
-    lastSync: '15 min ago',
-    usage: { events: 156, limit: 1000 },
-  },
+// Icons mapping
+const iconMap: Record<string, any> = {
+  'Globe': Globe,
+  'Bot': Bot,
+  'MessageSquare': MessageSquare,
+  'BarChart3': BarChart3,
+  'GitBranch': GitBranch,
+  'Database': Database,
+  'Cloud': Cloud,
+  'Mail': Mail,
+  'Calendar': Calendar,
+  'Shield': Shield,
+  'Zap': Zap,
+  'Link2': Link2,
+};
+
+// Predefined integration templates
+const predefinedTemplates = [
+  { id: 'openai', name: 'OpenAI', icon: Bot, type: 'ai' },
+  { id: 'slack', name: 'Slack', icon: MessageSquare, type: 'communication' },
+  { id: 'gmail', name: 'Gmail', icon: Mail, type: 'communication' },
+  { id: 'github', name: 'GitHub', icon: GitBranch, type: 'devops' },
+  { id: 'aws', name: 'AWS S3', icon: Cloud, type: 'storage' },
+  { id: 'google_analytics', name: 'Google Analytics', icon: BarChart3, type: 'analytics' },
+  { id: 'anthropic', name: 'Anthropic Claude', icon: Bot, type: 'ai' },
+  { id: 'calendar', name: 'Google Calendar', icon: Calendar, type: 'communication' },
 ];
 
 // API templates
@@ -170,11 +113,65 @@ const apiTemplates = [
 ];
 
 export default function IntegrationsPage() {
+  const [integrations, setIntegrations] = React.useState<any[]>([]);
+  const [apiTemplates, setApiTemplates] = React.useState<any[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [showConnectDialog, setShowConnectDialog] = useState(false);
-  const [selectedIntegration, setSelectedIntegration] = useState<typeof integrations[0] | null>(null);
+  const [selectedIntegration, setSelectedIntegration] = useState<any>(null);
+  
+  // New Integration Form State
+  const [newIntegrationType, setNewIntegrationType] = useState('');
+  const [newIntegrationKey, setNewIntegrationKey] = useState('');
+  const [newIntegrationName, setNewIntegrationName] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  
   const [showApiKey, setShowApiKey] = useState(false);
+
+  const loadIntegrations = async () => {
+    setIsLoading(true);
+    try {
+      const [integrationsRes, templatesRes] = await Promise.all([
+        apiClient.getAPIIntegrations(),
+        apiClient.client.get('/api-integrations/api/templates/')
+      ]);
+      
+      // Map backend integrations
+      const mappedIntegrations = ((integrationsRes as any).results || []).map((item: any) => {
+        // Use description or name to determine icon (since we store the template id in description)
+        const templateId = item.description || item.name?.toLowerCase() || '';
+        let matchedIcon = Globe;
+        if (templateId.includes('gmail') || templateId.includes('mail')) matchedIcon = Mail;
+        else if (templateId.includes('open') || templateId.includes('anthropic') || templateId.includes('ai')) matchedIcon = Bot;
+        else if (templateId.includes('slack')) matchedIcon = MessageSquare;
+        else if (templateId.includes('github') || templateId.includes('git')) matchedIcon = GitBranch;
+        else if (templateId.includes('aws') || templateId.includes('cloud')) matchedIcon = Cloud;
+        else if (templateId.includes('analytic')) matchedIcon = BarChart3;
+        else if (templateId.includes('calendar')) matchedIcon = Calendar;
+        
+        return {
+          ...item,
+          icon: matchedIcon,
+          category: item.category || 'ai',
+          status: item.status === 'active' ? 'connected' : (item.status || 'disconnected'),
+          lastSync: item.last_sync || 'Just now'
+        };
+      });
+      setIntegrations(mappedIntegrations);
+      
+      setApiTemplates(templatesRes.data?.results || []);
+    } catch (error) {
+      console.error('Failed to load integrations:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadIntegrations();
+  }, []);
 
   const filteredIntegrations = integrations.filter(integration => {
     const matchesSearch = integration.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -221,7 +218,12 @@ export default function IntegrationsPage() {
               Connect your agents to external services and APIs
             </p>
           </div>
-          <Button onClick={() => setShowConnectDialog(true)} className="gap-2">
+          <Button onClick={() => {
+            setNewIntegrationType('');
+            setNewIntegrationKey('');
+            setNewIntegrationName('');
+            setShowConnectDialog(true);
+          }} className="gap-2">
             <Plus className="h-4 w-4" />
             Add Integration
           </Button>
@@ -409,22 +411,24 @@ export default function IntegrationsPage() {
                         )}
                       </CardContent>
                       <CardFooter className="p-4 pt-0">
-                        {integration.status === 'connected' ? (
-                          <Button variant="outline" className="w-full gap-2">
-                            <RefreshCw className="h-4 w-4" />
-                            Sync Now
-                          </Button>
-                        ) : integration.status === 'error' ? (
-                          <Button className="w-full gap-2">
-                            <RefreshCw className="h-4 w-4" />
-                            Reconnect
-                          </Button>
-                        ) : (
-                          <Button className="w-full gap-2">
-                            <Link2 className="h-4 w-4" />
-                            Connect
-                          </Button>
-                        )}
+                        <div className="flex w-full gap-2">
+                          {integration.status === 'disconnected' ? (
+                            <Button className="w-full" variant="outline" onClick={() => {
+                              setNewIntegrationType(integration.type);
+                              setShowConnectDialog(true);
+                            }}>
+                              Connect
+                            </Button>
+                          ) : integration.status === 'error' ? (
+                            <Button className="w-full" variant="outline" onClick={() => setSelectedIntegration(integration)}>
+                              Reconnect
+                            </Button>
+                          ) : (
+                            <Button className="w-full" variant="outline" onClick={() => setSelectedIntegration(integration)}>
+                              Sync Now
+                            </Button>
+                          )}
+                        </div>
                       </CardFooter>
                     </Card>
                   </motion.div>
@@ -506,16 +510,16 @@ export default function IntegrationsPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Select Integration</Label>
-                <Select>
+                <Select value={newIntegrationType} onValueChange={setNewIntegrationType}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose an integration" />
                   </SelectTrigger>
                   <SelectContent>
-                    {integrations.filter(i => i.status === 'disconnected').map(integration => (
-                      <SelectItem key={integration.id} value={integration.id}>
+                    {predefinedTemplates.map(template => (
+                      <SelectItem key={template.id} value={template.id}>
                         <div className="flex items-center gap-2">
-                          <integration.icon className="h-4 w-4" />
-                          {integration.name}
+                          <template.icon className="h-4 w-4" />
+                          {template.name}
                         </div>
                       </SelectItem>
                     ))}
@@ -529,6 +533,8 @@ export default function IntegrationsPage() {
                     id="apiKey"
                     type={showApiKey ? 'text' : 'password'}
                     placeholder="sk-..."
+                    value={newIntegrationKey}
+                    onChange={(e) => setNewIntegrationKey(e.target.value)}
                   />
                   <Button
                     variant="ghost"
@@ -542,15 +548,44 @@ export default function IntegrationsPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="name">Connection Name (optional)</Label>
-                <Input id="name" placeholder="My API Connection" />
+                <Input 
+                  id="name" 
+                  placeholder="My API Connection" 
+                  value={newIntegrationName}
+                  onChange={(e) => setNewIntegrationName(e.target.value)}
+                />
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowConnectDialog(false)}>
+              <Button variant="outline" onClick={() => setShowConnectDialog(false)} disabled={isCreating}>
                 Cancel
               </Button>
-              <Button className="gap-2">
-                <Link2 className="h-4 w-4" />
+              <Button 
+                className="gap-2" 
+                disabled={!newIntegrationType || !newIntegrationKey || isCreating}
+                onClick={async () => {
+                  setIsCreating(true);
+                  try {
+                    const template = predefinedTemplates.find(t => t.id === newIntegrationType);
+                    await apiClient.client.post('/api-integrations/api/integrations/', {
+                      name: newIntegrationName || template?.name || 'New Integration',
+                      type: 'REST',
+                      category: 'Other',
+                      endpoint: 'https://api.example.com', // Placeholder required by model
+                      description: newIntegrationType, // Save template ID here for icon mapping
+                      authentication: { api_key: newIntegrationKey },
+                      status: 'active'
+                    });
+                    setShowConnectDialog(false);
+                    loadIntegrations();
+                  } catch (error) {
+                    console.error('Failed to create integration', error);
+                  } finally {
+                    setIsCreating(false);
+                  }
+                }}
+              >
+                {isCreating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
                 Connect
               </Button>
             </DialogFooter>

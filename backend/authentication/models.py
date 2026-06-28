@@ -160,3 +160,35 @@ class UserRoleAssignment(models.Model):
     
     def __str__(self):
         return f"{self.user.username} - {self.role.name}"
+
+class Workspace(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, unique=True, null=True, blank=True)
+    subscription_tier = models.CharField(
+        max_length=20,
+        choices=[('free', 'Free'), ('pro', 'Pro'), ('enterprise', 'Enterprise')],
+        default='free'
+    )
+    stripe_customer_id = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return self.name
+
+class WorkspaceMembership(models.Model):
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='memberships')
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='workspace_memberships')
+    role = models.CharField(
+        max_length=20,
+        choices=[('admin', 'Admin'), ('member', 'Member'), ('viewer', 'Viewer')],
+        default='member'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = ['workspace', 'user']
+        
+    def __str__(self):
+        return f"{self.user.username} - {self.workspace.name} ({self.role})"

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Moon, Sun, Zap, Activity, Settings, Brain } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAgent } from '@/contexts/AgentContext';
+import { WorkspaceSwitcher } from '@/components/workspace/WorkspaceSwitcher';
 
 export default function Header() {
   const { isDark, toggleTheme } = useTheme();
@@ -21,7 +22,7 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-200/50 dark:border-slate-700/50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-8">
           <div className="flex items-center space-x-2">
             <div className="relative">
               <Brain className="h-8 w-8 text-blue-600 dark:text-blue-400" />
@@ -37,6 +38,10 @@ export default function Header() {
                 Orchestration Platform
               </p>
             </div>
+          </div>
+
+          <div className="hidden md:block">
+            <WorkspaceSwitcher />
           </div>
         </div>
 
@@ -64,6 +69,15 @@ export default function Header() {
           </div>
 
           <div className="flex items-center space-x-2">
+            <Button
+              variant="default"
+              size="sm"
+              className="hidden md:flex bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white border-0 h-9"
+              onClick={() => window.location.href = '/settings/billing'}
+            >
+              Upgrade to Pro
+            </Button>
+
             <Button
               variant="outline"
               size="icon"

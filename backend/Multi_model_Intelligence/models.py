@@ -8,9 +8,11 @@ User = get_user_model()
 class ModelExecution(models.Model):
     """Track model execution history and performance"""
     PROVIDER_CHOICES = [
+        ('nvidia', 'NVIDIA'),
         ('groq', 'Groq'),
-        ('openai', 'OpenAI'),
+        ('google', 'Google'),
         ('anthropic', 'Anthropic'),
+        ('openai', 'OpenAI'),
     ]
     
     COMPLEXITY_CHOICES = [

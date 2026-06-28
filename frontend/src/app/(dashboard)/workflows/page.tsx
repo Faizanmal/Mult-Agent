@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import ReactFlow, {
   Node,
@@ -225,6 +225,44 @@ export default function WorkflowsPage() {
     setIsPanelOpen(false);
   }, []);
 
+  useEffect(() => {
+    if (!selectedNode) {
+      return;
+    }
+
+    const nextSelectedNode = nodes.find((node) => node.id === selectedNode.id) ?? null;
+
+    if (nextSelectedNode !== selectedNode) {
+      setSelectedNode(nextSelectedNode);
+    }
+  }, [nodes, selectedNode]);
+
+  const updateSelectedNodeData = useCallback(
+    (field: 'label' | 'description' | 'nodeType', value: string) => {
+      if (!selectedNode) {
+        return;
+      }
+
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => {
+          if (node.id !== selectedNode.id) {
+            return node;
+          }
+
+          const updatedNode = {
+            ...node,
+            data: {
+              ...node.data,
+              [field]: value,
+            },
+          };
+          return updatedNode;
+        })
+      );
+    },
+    [selectedNode, setNodes]
+  );
+
   const addNode = (nodeType: keyof typeof nodeTypesConfig) => {
     const newNode: Node = {
       id: `node-${Date.now()}`,
@@ -419,15 +457,24 @@ export default function WorkflowsPage() {
                 <div className="space-y-4 mt-4">
                   <div className="space-y-2">
                     <Label>Node Name</Label>
-                    <Input value={selectedNode.data.label} />
+                    <Input
+                      value={String(selectedNode.data.label ?? '')}
+                      onChange={(event) => updateSelectedNodeData('label', event.target.value)}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Description</Label>
-                    <Textarea value={selectedNode.data.description || ''} />
+                    <Textarea
+                      value={String(selectedNode.data.description ?? '')}
+                      onChange={(event) => updateSelectedNodeData('description', event.target.value)}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Type</Label>
-                    <Select value={selectedNode.data.nodeType}>
+                    <Select
+                      value={String(selectedNode.data.nodeType ?? 'action')}
+                      onValueChange={(value) => updateSelectedNodeData('nodeType', value)}
+                    >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>

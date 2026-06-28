@@ -280,9 +280,8 @@ class WorkflowEngine:
                 input_data=input_data
             )
             
-            # Execute the task (this would integrate with your agent execution system)
-            # For now, we'll simulate the execution
-            task_result = await self._simulate_agent_task_execution(agent, task)
+            # Execute the task via real Groq agent call
+            task_result = await self._execute_agent_task_via_groq(agent, task)
             
             # Update task with results
             task.status = TaskStatus.COMPLETED if task_result['success'] else TaskStatus.FAILED
@@ -418,18 +417,45 @@ class WorkflowEngine:
         }
     
     async def _execute_notification(self, step: WorkflowStep, context: Dict) -> Any:
-        """Execute notification step."""
-        
+        """Execute notification step via the real NotificationService."""
+        from ..webhook_service import NotificationService
+
         config = step.config
         message = config.get('message', 'Workflow notification')
-        
-        # Here you would integrate with your notification system
-        # For now, we'll just log the notification
-        logger.info(f"Workflow notification: {message}")
-        
+        title = config.get('title', 'Workflow Update')
+        channels = config.get('channels', ['in_app'])
+        notification_type = config.get('notification_type', 'info')
+        user_id = context.get('user_id')
+
+        if user_id:
+            try:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                user = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: User.objects.get(id=user_id)
+                )
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: NotificationService.create_notification(
+                        user=user,
+                        title=title,
+                        message=message,
+                        notification_type=notification_type,
+                        channels=channels,
+                        metadata={'workflow_id': context.get('workflow_id', ''), 'step_id': step.step_id},
+                    ),
+                )
+                logger.info(f"Workflow notification sent to user {user_id}: {message}")
+            except Exception as e:
+                logger.warning(f"Notification delivery failed: {e}")
+        else:
+            logger.info(f"Workflow notification (no user): {message}")
+
         return {
+            'title': title,
             'message': message,
-            'sent_at': timezone.now().isoformat()
+            'channels': channels,
+            'sent_at': timezone.now().isoformat(),
         }
     
     def _prepare_step_input(self, step: WorkflowStep, context: Dict) -> Dict:
@@ -523,31 +549,56 @@ class WorkflowEngine:
         
         return True
     
-    async def _simulate_agent_task_execution(self, agent: Agent, task: Task) -> Dict:
-        """Simulate agent task execution (replace with actual agent integration)."""
-        
-        # Simulate processing time
-        await asyncio.sleep(0.1)
-        
-        # Simulate success/failure based on agent capabilities
-        success = True  # For demo, always succeed
-        
-        if success:
-            return {
-                'success': True,
-                'output': {
+    async def _execute_agent_task_via_groq(self, agent: Agent, task: Task) -> Dict:
+        """
+        Execute an agent task by calling the Groq API with the agent's role-specific
+        system prompt. Runs the blocking Groq call in a thread-pool to avoid blocking
+        the event loop.
+        """
+        from .groq_service import GroqService
+
+        groq = GroqService()
+
+        input_content: str = ""
+        if task.input_data:
+            input_content = task.input_data.get('content', '') or str(task.input_data)[:2000]
+        if not input_content:
+            input_content = task.description or task.title
+
+        def _call_groq():
+            return groq.generate_agent_response(
+                agent_type=str(agent.type),
+                context={
                     'agent_id': str(agent.id),
                     'agent_name': agent.name,
-                    'task_type': task.task_type,
-                    'processed_at': timezone.now().isoformat(),
-                    'result': f"Task completed successfully by {agent.name}"
-                }
-            }
-        else:
+                    'task_id': str(task.id),
+                    'task_type': str(task.task_type) if hasattr(task, 'task_type') else 'general',
+                    'requirements': task.requirements if hasattr(task, 'requirements') else {},
+                },
+                user_input=input_content,
+            )
+
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, _call_groq)
+
+        if response.get('error'):
             return {
                 'success': False,
-                'error': "Simulated task failure"
+                'error': response['error'],
             }
+
+        return {
+            'success': True,
+            'output': {
+                'agent_id': str(agent.id),
+                'agent_name': agent.name,
+                'task_type': str(task.task_type) if hasattr(task, 'task_type') else 'general',
+                'processed_at': timezone.now().isoformat(),
+                'result': response.get('content', ''),
+                'model': response.get('model', ''),
+                'usage': response.get('usage', {}),
+            },
+        }
     
     def get_workflow_status(self, workflow_id: str) -> Optional[Dict]:
         """Get current status of a running workflow."""

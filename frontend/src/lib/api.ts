@@ -1771,4 +1771,12 @@ export const {
   deleteWorkflowTemplate,
   executeWorkflowTemplate,
   getWorkflowExecutions,
-} = apiClient;
+} = new Proxy(apiClient as any, {
+  get(target, prop) {
+    const value = target[prop];
+    if (typeof value === 'function') {
+      return value.bind(target);
+    }
+    return value;
+  }
+}) as typeof apiClient;

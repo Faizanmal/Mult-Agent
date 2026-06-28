@@ -509,12 +509,57 @@ class EnhancedAgentCoordinator:
         return steps
     
     def _handle_memory_operations(self, task: Task) -> Dict[str, Any]:
-        """Handle memory storage and retrieval operations"""
-        # Placeholder for memory operations
+        """Handle memory storage and retrieval operations against session context."""
+        input_data = task.input_data
+        content: str = input_data.get('content', '')
+        content_lower = content.lower()
+
+        stored_items: list = []
+        retrieved_items: list = []
+        memory_updates: list = []
+
+        # ── Retrieve existing memory from session context ─────────────────────
+        session_memory: Dict[str, Any] = self.session.context.get('agent_memory', {})
+
+        # ── Store: detect save/remember intent ────────────────────────────────
+        store_triggers = ('remember', 'store', 'save', 'note that', 'keep in mind')
+        if any(t in content_lower for t in store_triggers):
+            # Key by a short timestamp-based label so entries don't overwrite each other
+            from django.utils import timezone as tz
+            key = f"mem_{tz.now().strftime('%Y%m%d_%H%M%S')}"
+            session_memory[key] = content
+            stored_items.append({'key': key, 'value': content[:200]})
+            memory_updates.append(f"stored: {key}")
+
+        # ── Retrieve: detect recall intent ────────────────────────────────────
+        recall_triggers = ('recall', 'what do you know', 'what did i', 'retrieve', 'history', 'remember when')
+        if any(t in content_lower for t in recall_triggers):
+            # Return all stored memory entries
+            for k, v in session_memory.items():
+                retrieved_items.append({'key': k, 'value': str(v)[:300]})
+
+        # ── Always surface the last 5 recent session messages as context ──────
+        from ..models import Message
+        recent_messages = (
+            Message.objects.filter(session=self.session)
+            .order_by('-created_at')[:5]
+            .values('role', 'content', 'created_at')
+        )
+        for msg in recent_messages:
+            retrieved_items.append({
+                'key': f"msg_{msg['created_at'].strftime('%Y%m%d_%H%M%S')}",
+                'value': f"[{msg['role']}] {str(msg['content'])[:200]}",
+            })
+
+        # ── Persist updated memory back to session ────────────────────────────
+        if stored_items:
+            self.session.context['agent_memory'] = session_memory
+            self.session.save(update_fields=['context'])
+
         return {
-            'stored_items': [],
-            'retrieved_items': [],
-            'memory_updates': []
+            'stored_items': stored_items,
+            'retrieved_items': retrieved_items,
+            'memory_updates': memory_updates,
         }
     
     def _process_text_message(self, message: Message) -> Dict[str, Any]:

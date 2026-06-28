@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
+import { FaGithub } from 'react-icons/fa';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -13,8 +14,7 @@ import {
   Lock,
   Sparkles,
   ArrowRight,
-  Github,
-  Chrome,
+  Globe,
   Loader2,
   Shield,
   Zap,
@@ -216,11 +216,11 @@ export default function LoginPage() {
           {/* Social Login */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <Button variant="outline" className="h-12 rounded-xl">
-              <Chrome className="h-5 w-5 mr-2" />
+              <Globe className="h-5 w-5 mr-2" />
               Google
             </Button>
             <Button variant="outline" className="h-12 rounded-xl">
-              <Github className="h-5 w-5 mr-2" />
+              <FaGithub className="h-5 w-5 mr-2" />
               GitHub
             </Button>
           </div>

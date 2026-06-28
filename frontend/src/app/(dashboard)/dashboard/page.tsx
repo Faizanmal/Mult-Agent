@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { useRouter } from 'next/navigation';
+import { motion, type Variants } from 'framer-motion';
 import {
   Bot,
   Workflow,
@@ -23,7 +24,10 @@ import {
   Eye,
   Cpu,
   Database,
+  Grid3X3,
+  List,
 } from 'lucide-react';
+import apiClient from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,7 +37,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 
 // Animation variants
-const containerVariants = {
+const containerVariants: Variants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
@@ -43,57 +47,17 @@ const containerVariants = {
   },
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 20 },
   visible: {
     opacity: 1,
     y: 0,
     transition: {
       duration: 0.5,
-      ease: [0.4, 0, 0.2, 1],
+      ease: [0.42, 0, 0.58, 1],
     },
   },
 };
-
-// Stats data
-const stats = [
-  {
-    title: 'Active Agents',
-    value: '12',
-    change: '+2',
-    changeType: 'positive' as const,
-    icon: Bot,
-    gradient: 'from-indigo-500 to-purple-500',
-    description: 'Running workflows',
-  },
-  {
-    title: 'Tasks Completed',
-    value: '1,284',
-    change: '+18%',
-    changeType: 'positive' as const,
-    icon: CheckCircle2,
-    gradient: 'from-green-500 to-emerald-500',
-    description: 'This week',
-  },
-  {
-    title: 'Avg Response Time',
-    value: '45ms',
-    change: '-12%',
-    changeType: 'positive' as const,
-    icon: Zap,
-    gradient: 'from-orange-500 to-amber-500',
-    description: 'Powered by Groq',
-  },
-  {
-    title: 'API Calls',
-    value: '52.4K',
-    change: '+8%',
-    changeType: 'positive' as const,
-    icon: Activity,
-    gradient: 'from-blue-500 to-cyan-500',
-    description: 'Last 24 hours',
-  },
-];
 
 // Agent types with icons
 const agentTypes = [
@@ -102,42 +66,86 @@ const agentTypes = [
   { type: 'reasoning', icon: Cpu, color: 'text-green-500', bg: 'bg-green-500/10' },
   { type: 'action', icon: Zap, color: 'text-orange-500', bg: 'bg-orange-500/10' },
   { type: 'memory', icon: Database, color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
-];
-
-// Sample agents
-const agents = [
-  { id: '1', name: 'Master Orchestrator', type: 'orchestrator', status: 'active', tasks: 24, successRate: 98 },
-  { id: '2', name: 'Vision Analyst', type: 'vision', status: 'active', tasks: 156, successRate: 95 },
-  { id: '3', name: 'Logic Engine', type: 'reasoning', status: 'idle', tasks: 89, successRate: 99 },
-  { id: '4', name: 'Action Executor', type: 'action', status: 'processing', tasks: 312, successRate: 97 },
-  { id: '5', name: 'Memory Keeper', type: 'memory', status: 'active', tasks: 45, successRate: 100 },
-];
-
-// Recent activities
-const recentActivities = [
-  { id: 1, action: 'Workflow completed', agent: 'Data Pipeline', time: '2 min ago', status: 'success' },
-  { id: 2, action: 'New task assigned', agent: 'Vision Analyst', time: '5 min ago', status: 'info' },
-  { id: 3, action: 'Agent deployed', agent: 'Customer Support Bot', time: '12 min ago', status: 'success' },
-  { id: 4, action: 'Alert triggered', agent: 'Monitoring Agent', time: '18 min ago', status: 'warning' },
-  { id: 5, action: 'Training completed', agent: 'ML Agent', time: '25 min ago', status: 'success' },
+  { type: 'custom', icon: Cpu, color: 'text-gray-500', bg: 'bg-gray-500/10' },
 ];
 
 // Quick actions
 const quickActions = [
-  { title: 'Create Agent', icon: Bot, href: '/agents/new', gradient: 'from-indigo-500 to-purple-500' },
-  { title: 'Build Workflow', icon: Workflow, href: '/workflows/new', gradient: 'from-blue-500 to-cyan-500' },
+  { title: 'Create Agent', icon: Bot, href: '/agents', gradient: 'from-indigo-500 to-purple-500' },
+  { title: 'Build Workflow', icon: Workflow, href: '/workflows', gradient: 'from-blue-500 to-cyan-500' },
   { title: 'Start Chat', icon: MessageSquare, href: '/chat', gradient: 'from-green-500 to-emerald-500' },
   { title: 'View Analytics', icon: BarChart3, href: '/analytics', gradient: 'from-orange-500 to-amber-500' },
 ];
 
 export default function DashboardPage() {
-  const [ , setIsLoading] = useState(true);
+  const router = useRouter();
+  const [agents, setAgents] = useState<any[]>([]);
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [agentsRes, dashboardRes] = await Promise.all([
+        apiClient.getAgents(),
+        apiClient.getAnalyticsDashboard()
+      ]);
+      setAgents(agentsRes.results || agentsRes || []);
+      setDashboardData(dashboardRes);
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Simulate data loading
-    const timer = setTimeout(() => setIsLoading(false), 1000);
-    return () => clearTimeout(timer);
+    loadData();
   }, []);
+
+  const stats = dashboardData ? [
+    {
+      title: 'Active Agents',
+      value: (dashboardData.overview?.agents?.by_status?.active || 0).toString(),
+      change: `Total ${dashboardData.overview?.agents?.total || 0}`,
+      changeType: 'positive' as const,
+      icon: Bot,
+      gradient: 'from-indigo-500 to-purple-500',
+      description: 'Running workflows',
+    },
+    {
+      title: 'Tasks Completed',
+      value: (dashboardData.overview?.tasks?.by_status?.completed || 0).toString(),
+      change: `${((dashboardData.overview?.tasks?.success_rate || 0) * 100).toFixed(1)}%`,
+      changeType: 'positive' as const,
+      icon: CheckCircle2,
+      gradient: 'from-green-500 to-emerald-500',
+      description: 'Success rate',
+    },
+    {
+      title: 'Total Tasks',
+      value: (dashboardData.overview?.tasks?.total || 0).toString(),
+      change: 'Active',
+      changeType: 'positive' as const,
+      icon: Zap,
+      gradient: 'from-orange-500 to-amber-500',
+      description: 'All tasks',
+    },
+    {
+      title: 'Total Messages',
+      value: (dashboardData.overview?.messages?.total || 0).toString(),
+      change: 'Activity',
+      changeType: 'positive' as const,
+      icon: Activity,
+      gradient: 'from-blue-500 to-cyan-500',
+      description: 'In sessions',
+    },
+  ] : [
+    { title: 'Active Agents', value: '-', change: '-', changeType: 'positive' as const, icon: Bot, gradient: 'from-indigo-500 to-purple-500', description: 'Loading...' },
+    { title: 'Tasks Completed', value: '-', change: '-', changeType: 'positive' as const, icon: CheckCircle2, gradient: 'from-green-500 to-emerald-500', description: 'Loading...' },
+    { title: 'Total Tasks', value: '-', change: '-', changeType: 'positive' as const, icon: Zap, gradient: 'from-orange-500 to-amber-500', description: 'Loading...' },
+    { title: 'Total Messages', value: '-', change: '-', changeType: 'positive' as const, icon: Activity, gradient: 'from-blue-500 to-cyan-500', description: 'Loading...' },
+  ];
 
   const getAgentTypeInfo = (type: string) => {
     return agentTypes.find(t => t.type === type) || agentTypes[0];
@@ -172,11 +180,14 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" className="gap-2">
-              <RefreshCw className="h-4 w-4" />
+            <Button variant="outline" className="gap-2" onClick={loadData}>
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Button className="gap-2 bg-gradient-to-r from-indigo-500 to-purple-500 hover:opacity-90">
+            <Button 
+              className="gap-2 bg-gradient-to-r from-indigo-500 to-purple-500 hover:opacity-90"
+              onClick={() => router.push('/agents')}
+            >
               <Plus className="h-4 w-4" />
               New Agent
             </Button>
@@ -312,10 +323,10 @@ export default function DashboardPage() {
 
                         <div className="hidden sm:flex items-center gap-4">
                           <div className="text-right">
-                            <div className="text-sm font-medium">{agent.successRate}%</div>
-                            <div className="text-xs text-muted-foreground">Success Rate</div>
+                            <div className="text-sm font-medium">{agent.tasks || 0} tasks</div>
+                            <div className="text-xs text-muted-foreground">Processed</div>
                           </div>
-                          <Progress value={agent.successRate} className="w-20 h-2" />
+                          <Progress value={agent.performance_metrics?.success_rate || 100} className="w-20 h-2" />
                         </div>
 
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -346,9 +357,9 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {recentActivities.map((activity, index) => (
+                  {(dashboardData?.recent_activities || []).map((activity: any, index: number) => (
                     <motion.div
-                      key={activity.id}
+                      key={activity.id || index}
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.5 + index * 0.1 }}
@@ -371,6 +382,11 @@ export default function DashboardPage() {
                       </div>
                     </motion.div>
                   ))}
+                  {(!dashboardData?.recent_activities || dashboardData.recent_activities.length === 0) && (
+                    <div className="text-center text-muted-foreground text-sm py-4">
+                      No recent activity.
+                    </div>
+                  )}
                 </div>
 
                 <Button variant="ghost" className="w-full mt-4 text-muted-foreground">

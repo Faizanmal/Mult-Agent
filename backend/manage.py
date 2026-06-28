@@ -3,6 +3,12 @@
 import os
 import sys
 
+# Suppress TF/Keras imports in transformers & sentence-transformers before any
+# Django app code is loaded — prevents the Keras-3/tf-keras import crash.
+os.environ.setdefault('TRANSFORMERS_NO_TF', '1')
+os.environ.setdefault('USE_TF', '0')
+os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '3')
+
 
 def main():
     """Run administrative tasks."""

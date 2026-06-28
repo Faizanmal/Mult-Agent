@@ -31,6 +31,7 @@ class Agent(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     owner = models.ForeignKey(django_settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='agents')
+    workspace = models.ForeignKey('authentication.Workspace', on_delete=models.CASCADE, related_name='agents', null=True, blank=True)
     is_active = models.BooleanField(default=True)
     
     class Meta:
@@ -43,6 +44,7 @@ class Session(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=200)
     user = models.ForeignKey(django_settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='agent_sessions')
+    workspace = models.ForeignKey('authentication.Workspace', on_delete=models.CASCADE, related_name='sessions', null=True, blank=True)
     agents = models.ManyToManyField(Agent, related_name='sessions')
     context = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)

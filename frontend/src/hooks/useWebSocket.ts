@@ -26,6 +26,7 @@ interface UseWebSocketReturn {
 
 // Global singleton to prevent multiple connections
 let globalWebSocket: WebSocket | null = null;
+let globalWebSocketUrl: string | null = null;
 let globalConnectionStatus: 'connecting' | 'connected' | 'disconnected' | 'error' = 'disconnected';
 const globalMessageHandlers: Set<(message: WebSocketMessage) => void> = new Set();
 const globalConnectHandlers: Set<() => void> = new Set();
@@ -53,6 +54,36 @@ export function useWebSocket({
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const urlRef = useRef(url); // Store the URL for reconnection
+  const connectRef = useRef<() => void>(() => {});
+
+  const scheduleReconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current || reconnectAttemptsRef.current >= maxReconnectAttempts) {
+      if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+        console.error('Max reconnection attempts reached. Giving up.');
+        globalConnectionStatus = 'error';
+        if (isMountedRef.current) {
+          setConnectionStatus('error');
+        }
+        toast({
+          title: "Connection Failed",
+          description: "Unable to establish WebSocket connection after multiple attempts.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+
+    reconnectAttemptsRef.current++;
+    const reconnectDelay = Math.min(1000 * 1.5 ** reconnectAttemptsRef.current, 20000);
+    console.log(`Attempting to reconnect in ${reconnectDelay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      reconnectTimeoutRef.current = null;
+      if (isMountedRef.current && globalConnectionStatus !== 'connected') {
+        connectRef.current();
+      }
+    }, reconnectDelay);
+  }, [maxReconnectAttempts]);
 
   // Update URL ref when URL changes
   useEffect(() => {
@@ -131,6 +162,23 @@ export function useWebSocket({
     }
     lastConnectionAttempt = now;
 
+    const nextUrl = urlRef.current?.trim();
+
+    if (!nextUrl) {
+      console.log('No WebSocket URL provided, skipping connection');
+      globalConnectionStatus = 'disconnected';
+      setConnectionStatus('disconnected');
+      return;
+    }
+
+    if (globalWebSocket && globalWebSocketUrl && globalWebSocketUrl !== nextUrl) {
+      console.log('WebSocket URL changed, resetting global connection:', globalWebSocketUrl, '->', nextUrl);
+      globalWebSocket.close(1000, 'Switching WebSocket URL');
+      globalWebSocket = null;
+      globalWebSocketUrl = null;
+      stopHeartbeat();
+    }
+
     // Check if already connected or connecting
     if (globalWebSocket && (globalWebSocket.readyState === WebSocket.OPEN || globalWebSocket.readyState === WebSocket.CONNECTING)) {
       console.log('Using existing global WebSocket connection, state:', globalWebSocket.readyState);
@@ -141,13 +189,6 @@ export function useWebSocket({
       return;
     }
 
-    // Don't attempt connection if URL is empty
-    if (!urlRef.current || urlRef.current.trim() === '') {
-      console.log('No WebSocket URL provided, skipping connection');
-      setConnectionStatus('disconnected');
-      return;
-    }
-
     // Clear any pending connection attempt
     if (connectionAttemptRef) {
       clearTimeout(connectionAttemptRef);
@@ -155,11 +196,11 @@ export function useWebSocket({
     }
 
     try {
-      // Use the URL as-is (should already be correct from WebSocketContext)
-      const wsUrl = urlRef.current;
+      const wsUrl = nextUrl;
       console.log('Creating new global WebSocket connection to:', wsUrl);
       globalConnectionStatus = 'connecting';
       setConnectionStatus('connecting');
+      globalWebSocketUrl = wsUrl;
       
       globalWebSocket = new WebSocket(wsUrl);
       
@@ -214,10 +255,11 @@ export function useWebSocket({
       };
 
       globalWebSocket.onclose = (event) => {
-        console.log('WebSocket disconnected:', event.code, event.reason);
+        console.log('WebSocket disconnected:', event.code, event.reason, 'url:', wsUrl);
         stopHeartbeat();
         globalConnectionStatus = 'disconnected';
         globalWebSocket = null;
+        globalWebSocketUrl = null;
         
         if (isMountedRef.current) {
           setConnectionStatus('disconnected');
@@ -233,38 +275,19 @@ export function useWebSocket({
 
         // Attempt to reconnect if the connection was closed unexpectedly
         // Always attempt to reconnect unless explicitly closed with code 1000 (normal closure)
-        if (event.code !== 1000 && reconnectAttemptsRef.current < maxReconnectAttempts) {
-          reconnectAttemptsRef.current++;
-          // More aggressive exponential backoff with max 20 seconds
-          const reconnectDelay = Math.min(1000 * 1.5 ** reconnectAttemptsRef.current, 20000);
-          console.log(`Attempting to reconnect in ${reconnectDelay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
-          
-          reconnectTimeoutRef.current = setTimeout(() => {
-            if (isMountedRef.current && globalConnectionStatus !== 'connected') {
-              connect();
-            }
-          }, reconnectDelay);
-        } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-          console.error('Max reconnection attempts reached. Giving up.');
-          globalConnectionStatus = 'error';
-          if (isMountedRef.current) {
-            setConnectionStatus('error');
-          }
-          toast({
-            title: "Connection Failed",
-            description: "Unable to establish WebSocket connection after multiple attempts.",
-            variant: "destructive",
-          });
+        if (event.code !== 1000) {
+          scheduleReconnect();
         }
       };
 
       globalWebSocket.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.error('WebSocket connection error', {
+          url: wsUrl,
+          readyState: globalWebSocket?.readyState,
+          error,
+        });
         globalConnectionStatus = 'error';
         stopHeartbeat();
-        
-        // Don't set globalWebSocket to null here, let onclose handle it
-        // globalWebSocket = null;
         
         if (isMountedRef.current) {
           setConnectionStatus('error');
@@ -277,26 +300,6 @@ export function useWebSocket({
             console.error('Error in error handler:', handlerError);
           }
         });
-        
-        // Attempt to reconnect on error
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          reconnectAttemptsRef.current++;
-          const reconnectDelay = Math.min(1000 * 1.5 ** reconnectAttemptsRef.current, 20000);
-          console.log(`Attempting to reconnect in ${reconnectDelay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
-          
-          reconnectTimeoutRef.current = setTimeout(() => {
-            if (isMountedRef.current && globalConnectionStatus !== 'connected') {
-              connect();
-            }
-          }, reconnectDelay);
-        } else {
-          console.error('Max reconnection attempts reached. Giving up.');
-          toast({
-            title: "Connection Failed",
-            description: "Unable to establish WebSocket connection after multiple attempts.",
-            variant: "destructive",
-          });
-        }
       };
 
     } catch (error) {
@@ -304,27 +307,15 @@ export function useWebSocket({
       stopHeartbeat();
       setConnectionStatus('error');
       console.error('Failed to connect to WebSocket:', error);
-      
-      // Attempt to reconnect on error
-      if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-        reconnectAttemptsRef.current++;
-        const reconnectDelay = Math.min(1000 * 1.5 ** reconnectAttemptsRef.current, 20000);
-        console.log(`Attempting to reconnect in ${reconnectDelay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
-        
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (isMountedRef.current && globalConnectionStatus !== 'connected') {
-            connect();
-          }
-        }, reconnectDelay);
-      } else {
-        toast({
-          title: "Connection Error",
-          description: "Failed to establish WebSocket connection.",
-          variant: "destructive",
-        });
-      }
+      globalWebSocket = null;
+      globalWebSocketUrl = null;
+      scheduleReconnect();
     }
-  }, [startHeartbeat, stopHeartbeat]);
+  }, [scheduleReconnect, startHeartbeat, stopHeartbeat]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   const disconnect = useCallback(() => {
     // Clear any pending reconnection attempts
@@ -348,6 +339,7 @@ export function useWebSocket({
       globalWebSocket.close();
       globalWebSocket = null;
     }
+    globalWebSocketUrl = null;
     globalConnectionStatus = 'disconnected';
     setConnectionStatus('disconnected');
   }, [stopHeartbeat]);
@@ -373,20 +365,29 @@ export function useWebSocket({
   // Single connection attempt on mount
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      if (globalConnectionStatus === 'disconnected') {
+      const activeUrl = urlRef.current?.trim();
+      const shouldReconnectForUrlChange =
+        !!activeUrl &&
+        globalWebSocketUrl !== null &&
+        globalWebSocketUrl !== activeUrl;
+
+      if (shouldReconnectForUrlChange) {
+        disconnect();
+      }
+
+      if (activeUrl && (globalConnectionStatus === 'disconnected' || shouldReconnectForUrlChange)) {
         connect();
       } else {
         setConnectionStatus(globalConnectionStatus);
       }
-    }, 100); // Small delay to let React settle
+    }, 100);
 
     return () => {
       clearTimeout(timeoutId);
       isMountedRef.current = false;
       stopHeartbeat();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - only run once
+  }, [connect, disconnect, stopHeartbeat, url]);
 
   return {
     sendMessage,

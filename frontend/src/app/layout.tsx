@@ -3,8 +3,14 @@ import type { Metadata } from 'next';
 import { QueryProvider } from '@/providers/QueryProvider';
 
 export const metadata: Metadata = {
-  title: 'Multi-Agent System',
-  description: 'Intelligent agent orchestration with real-time performance',
+  title: 'Multi-Agent Orchestration | The Future of AI Workflows',
+  description: 'Enterprise-grade intelligent agent orchestration with real-time performance. Automate your workflows with multi-modal AI agents powered by Groq.',
+  keywords: ['AI', 'Agents', 'Groq', 'Orchestration', 'Workflows', 'Automation', 'Enterprise AI'],
+  openGraph: {
+    title: 'Multi-Agent Orchestration | The Future of AI Workflows',
+    description: 'Enterprise-grade intelligent agent orchestration with real-time performance.',
+    type: 'website',
+  }
 };
 
 export default function RootLayout({
