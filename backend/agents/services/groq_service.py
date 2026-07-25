@@ -243,10 +243,10 @@ Please format ALL your responses this way. Never use plain text paragraphs."""
         1. Analyze user requests and break them down into tasks
         2. Assign tasks to appropriate specialized agents
         3. Coordinate the workflow between agents
-        4. Synthesize results from multiple agents into coherent responses
+        4. Synthesize results from multiple agents into coherent, helpful responses for the user
         5. Manage task priorities and dependencies
         
-        Always respond with clear task assignments and coordination instructions."""
+        If you are synthesizing final results for the user, directly answer their request using the information provided by the specialist agents. Do not just output task assignments if the user is asking for information (e.g. reading emails, getting data)."""
     
     def _get_vision_prompt(self) -> str:
         return """You are a Vision Agent specialized in processing visual information.

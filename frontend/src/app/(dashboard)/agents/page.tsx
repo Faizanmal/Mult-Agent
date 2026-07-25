@@ -24,7 +24,7 @@ import {
   Grid3X3,
   List,
 } from 'lucide-react';
-import apiClient from '@/lib/api';
+import apiClient, { type Agent } from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -69,78 +69,21 @@ const agentTypes = {
   custom: { icon: Settings, color: 'text-slate-500', bg: 'bg-slate-500/10', gradient: 'from-slate-500 to-gray-500' },
 };
 
-// Sample agents data
-const sampleAgents = [
-  {
-    id: '1',
-    name: 'Master Orchestrator',
-    type: 'orchestrator',
-    status: 'active',
-    description: 'Coordinates all agent activities and manages workflow execution',
-    capabilities: ['task_coordination', 'agent_management', 'workflow_optimization'],
-    metrics: { tasks: 1284, successRate: 98.5, avgResponseTime: 42 },
-    createdAt: '2024-01-15',
-    lastActive: '2 min ago',
-  },
-  {
-    id: '2',
-    name: 'Vision Analyst',
-    type: 'vision',
-    status: 'active',
-    description: 'Processes and analyzes visual content including images and videos',
-    capabilities: ['image_analysis', 'object_detection', 'ocr', 'video_processing'],
-    metrics: { tasks: 856, successRate: 95.2, avgResponseTime: 128 },
-    createdAt: '2024-01-18',
-    lastActive: '5 min ago',
-  },
-  {
-    id: '3',
-    name: 'Logic Engine',
-    type: 'reasoning',
-    status: 'idle',
-    description: 'Handles complex reasoning, problem-solving, and decision making',
-    capabilities: ['logical_analysis', 'problem_solving', 'decision_making'],
-    metrics: { tasks: 2156, successRate: 99.1, avgResponseTime: 85 },
-    createdAt: '2024-01-20',
-    lastActive: '15 min ago',
-  },
-  {
-    id: '4',
-    name: 'Action Executor',
-    type: 'action',
-    status: 'processing',
-    description: 'Executes tasks, API calls, and external integrations',
-    capabilities: ['api_integration', 'task_execution', 'automation'],
-    metrics: { tasks: 4521, successRate: 97.8, avgResponseTime: 156 },
-    createdAt: '2024-01-22',
-    lastActive: 'Just now',
-  },
-  {
-    id: '5',
-    name: 'Memory Keeper',
-    type: 'memory',
-    status: 'active',
-    description: 'Manages context storage, knowledge retrieval, and learning',
-    capabilities: ['context_storage', 'knowledge_retrieval', 'semantic_search'],
-    metrics: { tasks: 789, successRate: 100, avgResponseTime: 35 },
-    createdAt: '2024-01-25',
-    lastActive: '1 min ago',
-  },
-  {
-    id: '6',
-    name: 'Customer Support Bot',
-    type: 'custom',
-    status: 'active',
-    description: 'Handles customer inquiries and support tickets',
-    capabilities: ['chat', 'ticket_management', 'sentiment_analysis'],
-    metrics: { tasks: 3456, successRate: 94.5, avgResponseTime: 62 },
-    createdAt: '2024-02-01',
-    lastActive: '30 sec ago',
-  },
-];
+type DisplayAgent = Agent & {
+  description?: string;
+  configuration?: { description?: string };
+  tasks?: number;
+  metrics?: { tasks: number; successRate: number; avgResponseTime: number };
+  lastActive?: string;
+  createdAt?: string;
+  performance_metrics?: Agent['performance_metrics'] & {
+    success_rate?: number;
+    avg_response_time?: number;
+  };
+};
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<any[]>([]);
+  const [agents, setAgents] = useState<DisplayAgent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all');
@@ -161,7 +104,7 @@ export default function AgentsPage() {
     setIsLoading(true);
     try {
       const response = await apiClient.getAgents();
-      setAgents(response.results || response || []);
+      setAgents((response.results || response || []) as DisplayAgent[]);
     } catch (error) {
       console.error('Failed to load agents:', error);
       toast({ title: 'Error', description: 'Failed to load agents', variant: 'destructive' });
@@ -171,7 +114,8 @@ export default function AgentsPage() {
   };
 
   useEffect(() => {
-    loadAgents();
+    void loadAgents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
   }, []);
 
   const handleCreateAgent = async () => {
@@ -184,11 +128,10 @@ export default function AgentsPage() {
     try {
       await apiClient.createAgent({
         name: newName,
-        type: newType as any,
+        type: newType as Agent['type'],
         status: autoActivate ? 'active' : 'idle',
         capabilities: newCapabilities,
-        configuration: { description: newDescription }
-      } as any);
+      });
       
       await loadAgents();
       
@@ -504,7 +447,7 @@ export default function AgentsPage() {
 
                         {/* Capabilities */}
                         <div className="flex flex-wrap gap-1 mb-4">
-                          {agent.capabilities.slice(0, 3).map((cap) => (
+                          {agent.capabilities.slice(0, 3).map((cap: string) => (
                             <Badge key={cap} variant="secondary" className="text-xs">
                               {cap}
                             </Badge>

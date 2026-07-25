@@ -62,12 +62,16 @@ class APIIntegration(models.Model):
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='api_integrations')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
     
     def set_auth_data(self, auth_data):
         """Encrypt and store authentication data"""
         if auth_data:
-            # Convert dict to string for encryption
-            auth_string = str(auth_data)
+            import json
+            # Convert dict to string for encryption using json.dumps for safe deserialization later
+            auth_string = json.dumps(auth_data)
             self.encrypted_auth_data = encryption_util.encrypt(auth_string)
         else:
             self.encrypted_auth_data = ""
@@ -77,12 +81,21 @@ class APIIntegration(models.Model):
         if self.encrypted_auth_data:
             try:
                 decrypted_string = encryption_util.decrypt(self.encrypted_auth_data)
-                # Use json.loads for safer deserialization instead of eval
+                if not decrypted_string:
+                    return {}
+                    
                 import json
-                return json.loads(decrypted_string) if decrypted_string else {}
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to decode auth data: {str(e)}")
-                return {}
+                try:
+                    return json.loads(decrypted_string)
+                except json.JSONDecodeError:
+                    # Fallback for old data encrypted with str(dict)
+                    import ast
+                    try:
+                        return ast.literal_eval(decrypted_string)
+                    except (ValueError, SyntaxError) as e:
+                        logger.error(f"Failed to parse auth data with ast: {str(e)}")
+                        return {}
+                        
             except Exception as e:
                 logger.error(f"Error retrieving auth data: {str(e)}")
                 return {}
@@ -158,3 +171,41 @@ class IntegrationAlert(models.Model):
     resolved = models.BooleanField(default=False)
     resolved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ScheduledAutomation(models.Model):
+    """Scheduled automation jobs — inbox digest, Slack alerts, workflow runs."""
+
+    AUTOMATION_TYPES = [
+        ('inbox_digest', 'Daily Inbox Digest'),
+        ('slack_alert', 'Slack Alert'),
+        ('workflow_run', 'Run Workflow'),
+        ('integration_check', 'Integration Health Check'),
+    ]
+    FREQUENCY_CHOICES = [
+        ('hourly', 'Every Hour'),
+        ('daily', 'Daily'),
+        ('weekly', 'Weekly'),
+        ('cron', 'Custom Cron'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255)
+    automation_type = models.CharField(max_length=50, choices=AUTOMATION_TYPES)
+    frequency = models.CharField(max_length=20, choices=FREQUENCY_CHOICES, default='daily')
+    cron_expression = models.CharField(max_length=100, blank=True)
+    is_active = models.BooleanField(default=True)
+    config = models.JSONField(default=dict)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='scheduled_automations')
+    workflow = models.ForeignKey(
+        'workflow_builder.VisualWorkflow', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='automations',
+    )
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    next_run_at = models.DateTimeField(null=True, blank=True)
+    last_result = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']

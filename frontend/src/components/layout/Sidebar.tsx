@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
@@ -23,7 +23,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  HelpCircle,
+  Clock,
+  CreditCard,
   LogOut,
   Search,
   Command,
@@ -33,6 +34,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface NavItem {
   title: string;
@@ -53,7 +55,6 @@ const navigationItems: NavItem[] = [
     title: 'Agents',
     href: '/agents',
     icon: Bot,
-    badge: '5',
   },
   {
     title: 'Chat',
@@ -61,9 +62,24 @@ const navigationItems: NavItem[] = [
     icon: MessageSquare,
   },
   {
+    title: 'Automations',
+    href: '/automations',
+    icon: Clock,
+  },
+  {
     title: 'Workflows',
     href: '/workflows',
     icon: Workflow,
+  },
+  {
+    title: 'Integrations',
+    href: '/integrations',
+    icon: Globe,
+  },
+  {
+    title: 'Analytics',
+    href: '/analytics',
+    icon: BarChart3,
   },
   {
     title: 'Coordination',
@@ -79,23 +95,11 @@ const navigationItems: NavItem[] = [
     title: 'MCP Tools',
     href: '/mcp',
     icon: Cpu,
-    badge: 'New',
-    badgeVariant: 'default',
-  },
-  {
-    title: 'Analytics',
-    href: '/analytics',
-    icon: BarChart3,
   },
   {
     title: 'Data Pipelines',
     href: '/pipelines',
     icon: Database,
-  },
-  {
-    title: 'Integrations',
-    href: '/integrations',
-    icon: Globe,
   },
   {
     title: 'Plugins',
@@ -116,8 +120,6 @@ const navigationItems: NavItem[] = [
     title: 'Notifications',
     href: '/notifications',
     icon: Bell,
-    badge: '3',
-    badgeVariant: 'destructive',
   },
 ];
 
@@ -128,9 +130,9 @@ const bottomItems: NavItem[] = [
     icon: Settings,
   },
   {
-    title: 'Help & Docs',
-    href: '/docs',
-    icon: HelpCircle,
+    title: 'Billing',
+    href: '/settings/billing',
+    icon: CreditCard,
   },
 ];
 
@@ -215,8 +217,26 @@ const NavItemComponent: React.FC<{
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+
+  const displayName = user?.display_name || user?.username || user?.email || 'User';
+  const initials = displayName
+    .split(/\s+/)
+    .map((p) => p[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+  const tierLabel = user?.subscription_tier
+    ? `${user.subscription_tier.charAt(0).toUpperCase()}${user.subscription_tier.slice(1)} Plan`
+    : 'Free Plan';
+
+  const handleLogout = async () => {
+    await logout();
+    router.replace('/login');
+  };
 
   useEffect(() => {
     setIsMounted(true);
@@ -330,8 +350,8 @@ export function Sidebar() {
         )}>
           <div className="relative h-8 w-8 shrink-0">
             <div className="absolute inset-0 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500" />
-            <div className="absolute inset-0.5 rounded-full bg-background flex items-center justify-center">
-              <span className="text-xs font-semibold">JD</span>
+              <div className="absolute inset-0.5 rounded-full bg-background flex items-center justify-center">
+              <span className="text-xs font-semibold">{initials}</span>
             </div>
             <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-green-500" />
           </div>
@@ -343,13 +363,13 @@ export function Sidebar() {
                 exit={{ opacity: 0, x: -10 }}
                 className="flex-1 min-w-0"
               >
-                <p className="truncate text-sm font-medium">John Doe</p>
-                <p className="truncate text-xs text-muted-foreground">Pro Plan</p>
+                <p className="truncate text-sm font-medium">{displayName}</p>
+                <p className="truncate text-xs text-muted-foreground">{tierLabel}</p>
               </motion.div>
             )}
           </AnimatePresence>
           {!isCollapsed && (
-            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={handleLogout} title="Sign out">
               <LogOut className="h-4 w-4" />
             </Button>
           )}

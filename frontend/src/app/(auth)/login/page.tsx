@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { FaGithub } from 'react-icons/fa';
 import { useForm } from 'react-hook-form';
@@ -19,6 +20,7 @@ import {
   Shield,
   Zap,
   Bot,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +33,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { useAuth } from '@/contexts/AuthContext';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -54,69 +57,82 @@ const features = [
   {
     icon: Shield,
     title: 'Enterprise Security',
-    description: 'SOC 2 compliant with end-to-end encryption',
+    description: 'OWASP ASVS compliant with end-to-end encryption',
   },
 ];
 
 export default function LoginPage() {
+  const router = useRouter();
+  const { login, loginWithGoogle, loginWithGitHub } = useAuth();
+
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [oauthLoading, setOAuthLoading] = useState<'google' | 'github' | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-      rememberMe: false,
-    },
+    defaultValues: { email: '', password: '', rememberMe: false },
   });
 
   const onSubmit = async (data: LoginFormValues) => {
+    setError(null);
     setIsLoading(true);
     try {
-      // TODO: Implement actual login
-      console.log('Login data:', data);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      // Redirect to dashboard
-      window.location.href = '/dashboard';
-    } catch (error) {
-      console.error('Login error:', error);
+      const ok = await login(data.email, data.password);
+      if (!ok) {
+        setError('Login failed. Please check your credentials.');
+        return;
+      }
+      router.push('/dashboard');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Login failed. Please check your credentials.');
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleGoogle = async () => {
+    setError(null);
+    setOAuthLoading('google');
+    try {
+      await loginWithGoogle();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to start Google login. Please try again.');
+      setOAuthLoading(null);
+    }
+  };
+
+  const handleGitHub = async () => {
+    setError(null);
+    setOAuthLoading('github');
+    try {
+      await loginWithGitHub();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to start GitHub login. Please try again.');
+      setOAuthLoading(null);
+    }
+  };
+
   return (
     <div className="min-h-screen flex">
-      {/* Left Panel - Branding */}
+      {/* Left Panel – Branding */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
-        {/* Animated Background */}
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600" />
         <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10" />
-        
-        {/* Animated Orbs */}
+
         <motion.div
           className="absolute top-1/4 left-1/4 w-96 h-96 bg-white/10 rounded-full blur-3xl"
-          animate={{
-            x: [0, 50, 0],
-            y: [0, -30, 0],
-            scale: [1, 1.1, 1],
-          }}
-          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+          animate={{ x: [0, 50, 0], y: [0, -30, 0], scale: [1, 1.1, 1] }}
+          transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
         />
         <motion.div
           className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-pink-500/20 rounded-full blur-3xl"
-          animate={{
-            x: [0, -40, 0],
-            y: [0, 40, 0],
-            scale: [1, 0.9, 1],
-          }}
-          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+          animate={{ x: [0, -40, 0], y: [0, 40, 0], scale: [1, 0.9, 1] }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
         />
 
-        {/* Content */}
         <div className="relative z-10 flex flex-col justify-center px-16 text-white">
-          {/* Logo */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -136,12 +152,11 @@ export default function LoginPage() {
               <span className="text-white/80">True Intelligence.</span>
             </h1>
             <p className="text-xl text-white/70 max-w-md">
-              Enterprise-grade multi-agent AI platform with real-time coordination, 
+              Enterprise-grade multi-agent AI platform with real-time coordination,
               multi-modal intelligence, and lightning-fast inference.
             </p>
           </motion.div>
 
-          {/* Features */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -167,7 +182,6 @@ export default function LoginPage() {
             ))}
           </motion.div>
 
-          {/* Stats */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -188,7 +202,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right Panel - Login Form */}
+      {/* Right Panel – Login Form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <motion.div
           initial={{ opacity: 0, x: 20 }}
@@ -202,25 +216,52 @@ export default function LoginPage() {
               <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500" />
               <Sparkles className="relative h-5 w-5 text-white" />
             </div>
-            <span className="text-2xl font-bold gradient-text">MultiAgent AI</span>
+            <span className="text-2xl font-bold">MultiAgent AI</span>
           </div>
 
-          {/* Header */}
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold mb-2">Welcome back</h2>
-            <p className="text-muted-foreground">
-              Sign in to your account to continue
-            </p>
+            <p className="text-muted-foreground">Sign in to your account to continue</p>
           </div>
 
-          {/* Social Login */}
+          {/* Error Banner */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </motion.div>
+          )}
+
+          {/* OAuth Buttons */}
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <Button variant="outline" className="h-12 rounded-xl">
-              <Globe className="h-5 w-5 mr-2" />
+            <Button
+              variant="outline"
+              className="h-12 rounded-xl"
+              onClick={handleGoogle}
+              disabled={!!oauthLoading || isLoading}
+            >
+              {oauthLoading === 'google' ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Globe className="h-5 w-5 mr-2" />
+              )}
               Google
             </Button>
-            <Button variant="outline" className="h-12 rounded-xl">
-              <FaGithub className="h-5 w-5 mr-2" />
+            <Button
+              variant="outline"
+              className="h-12 rounded-xl"
+              onClick={handleGitHub}
+              disabled={!!oauthLoading || isLoading}
+            >
+              {oauthLoading === 'github' ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FaGithub className="h-5 w-5 mr-2" />
+              )}
               GitHub
             </Button>
           </div>
@@ -231,9 +272,7 @@ export default function LoginPage() {
               <span className="w-full border-t" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or continue with
-              </span>
+              <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
             </div>
           </div>
 
@@ -252,6 +291,7 @@ export default function LoginPage() {
                         <Input
                           placeholder="name@company.com"
                           className="h-12 pl-10 rounded-xl"
+                          autoComplete="email"
                           {...field}
                         />
                       </div>
@@ -274,18 +314,16 @@ export default function LoginPage() {
                           type={showPassword ? 'text' : 'password'}
                           placeholder="••••••••"
                           className="h-12 pl-10 pr-10 rounded-xl"
+                          autoComplete="current-password"
                           {...field}
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
                         >
-                          {showPassword ? (
-                            <EyeOff className="h-5 w-5" />
-                          ) : (
-                            <Eye className="h-5 w-5" />
-                          )}
+                          {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                         </button>
                       </div>
                     </FormControl>
@@ -301,10 +339,7 @@ export default function LoginPage() {
                   render={({ field }) => (
                     <FormItem className="flex items-center space-x-2 space-y-0">
                       <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
+                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                       </FormControl>
                       <FormLabel className="text-sm font-normal cursor-pointer">
                         Remember me
@@ -312,17 +347,14 @@ export default function LoginPage() {
                     </FormItem>
                   )}
                 />
-                <Link
-                  href="/forgot-password"
-                  className="text-sm text-primary hover:underline"
-                >
+                <Link href="/forgot-password" className="text-sm text-primary hover:underline">
                   Forgot password?
                 </Link>
               </div>
 
               <Button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || !!oauthLoading}
                 className="w-full h-12 rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 transition-opacity"
               >
                 {isLoading ? (
@@ -340,7 +372,6 @@ export default function LoginPage() {
             </form>
           </Form>
 
-          {/* Sign Up Link */}
           <p className="text-center mt-6 text-muted-foreground">
             Don&apos;t have an account?{' '}
             <Link href="/register" className="text-primary font-medium hover:underline">
@@ -348,16 +379,11 @@ export default function LoginPage() {
             </Link>
           </p>
 
-          {/* Terms */}
           <p className="text-center mt-6 text-xs text-muted-foreground">
             By signing in, you agree to our{' '}
-            <Link href="/terms" className="underline hover:text-foreground">
-              Terms of Service
-            </Link>{' '}
+            <Link href="/terms" className="underline hover:text-foreground">Terms of Service</Link>{' '}
             and{' '}
-            <Link href="/privacy" className="underline hover:text-foreground">
-              Privacy Policy
-            </Link>
+            <Link href="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>
           </p>
         </motion.div>
       </div>

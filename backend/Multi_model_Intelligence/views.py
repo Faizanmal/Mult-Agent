@@ -9,7 +9,9 @@ from asgiref.sync import async_to_sync
 import logging
 import json
 
-from .models import AIModelConfig, MultiModalSession, ModalityResult, CrossModalInsight
+from .models import AIModelConfig, MultiModalSession, ModalityResult, CrossModalInsight, ModelCoordinationRun
+from .catalog import seed_default_ai_models
+from .coordination import get_coordination_service
 from agents.services.multimodal_processor import MultiModalProcessor
 from agents.services.groq_service import GroqService
 
@@ -18,36 +20,31 @@ logger = logging.getLogger(__name__)
 class AIModelConfigViewSet(viewsets.ViewSet):
     """Manage AI model configurations"""
     permission_classes = [AllowAny] if settings.DEBUG else [IsAuthenticated]
-    
+
     def list(self, request):
-        """List all AI model configurations"""
+        """List AI model configurations (user's + global defaults)."""
         try:
             model_type = request.query_params.get('model_type')
             is_active = request.query_params.get('is_active')
-            
+
             queryset = AIModelConfig.objects.all()
-            
+            if request.user.is_authenticated:
+                from django.db.models import Q
+                queryset = queryset.filter(
+                    Q(created_by=request.user) | Q(created_by__isnull=True)
+                )
+
             if model_type:
                 queryset = queryset.filter(model_type=model_type)
             if is_active is not None:
                 queryset = queryset.filter(is_active=is_active.lower() == 'true')
-            
-            data = [{
-                'id': str(config.id),
-                'name': config.name,
-                'model_type': config.model_type,
-                'provider': config.provider,
-                'model_id': config.model_id,
-                'capabilities': config.capabilities,
-                'is_active': config.is_active,
-                'is_default': config.is_default,
-            } for config in queryset[:50]]
-            
+
+            data = [self._serialize(config) for config in queryset[:100]]
             return Response({'models': data, 'count': len(data)})
         except Exception as e:
             logger.error(f"Error listing AI models: {e}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     def create(self, request):
         """Create a new AI model configuration"""
         try:
@@ -55,31 +52,102 @@ class AIModelConfigViewSet(viewsets.ViewSet):
             model_type = request.data.get('model_type')
             provider = request.data.get('provider')
             model_id = request.data.get('model_id')
-            
+
             if not all([name, model_type, provider, model_id]):
                 return Response(
                     {'error': 'name, model_type, provider, and model_id are required'},
-                    status=status.HTTP_400_BAD_REQUEST
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-            
+
+            # Normalize UI aliases
+            type_aliases = {'image': 'vision', 'llm': 'text'}
+            model_type = type_aliases.get(str(model_type).lower(), model_type)
+
+            config_payload = dict(request.data.get('config') or {})
+            api_key = request.data.get('api_key')
+            if api_key:
+                config_payload['api_key'] = api_key
+
             config = AIModelConfig.objects.create(
                 name=name,
                 model_type=model_type,
-                provider=provider,
+                provider=str(provider).lower(),
                 model_id=model_id,
-                config=request.data.get('config', {}),
-                capabilities=request.data.get('capabilities', []),
-                created_by=request.user if request.user.is_authenticated else None
+                config=config_payload,
+                capabilities=request.data.get('capabilities') or [],
+                is_default=bool(request.data.get('is_default', False)),
+                created_by=request.user if request.user.is_authenticated else None,
             )
-            
-            return Response({
-                'id': str(config.id),
-                'name': config.name,
-                'message': 'AI model configuration created successfully'
-            }, status=status.HTTP_201_CREATED)
+
+            return Response(
+                {**self._serialize(config), 'message': 'AI model configuration created successfully'},
+                status=status.HTTP_201_CREATED,
+            )
         except Exception as e:
             logger.error(f"Error creating AI model config: {e}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def retrieve(self, request, pk=None):
+        try:
+            config = AIModelConfig.objects.get(pk=pk)
+            return Response(self._serialize(config))
+        except AIModelConfig.DoesNotExist:
+            return Response({'error': 'Model not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def partial_update(self, request, pk=None):
+        try:
+            config = AIModelConfig.objects.get(pk=pk)
+            for field in ('name', 'model_type', 'provider', 'model_id', 'capabilities', 'is_active', 'is_default'):
+                if field in request.data:
+                    setattr(config, field, request.data[field])
+            if 'config' in request.data and isinstance(request.data['config'], dict):
+                merged = dict(config.config or {})
+                merged.update(request.data['config'])
+                config.config = merged
+            if request.data.get('api_key'):
+                merged = dict(config.config or {})
+                merged['api_key'] = request.data['api_key']
+                config.config = merged
+            config.save()
+            return Response(self._serialize(config))
+        except AIModelConfig.DoesNotExist:
+            return Response({'error': 'Model not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def destroy(self, request, pk=None):
+        try:
+            config = AIModelConfig.objects.get(pk=pk)
+            config.delete()
+            return Response({'success': True, 'message': 'Model deleted'})
+        except AIModelConfig.DoesNotExist:
+            return Response({'error': 'Model not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'])
+    def seed_defaults(self, request):
+        """Seed built-in provider models if the catalog is empty."""
+        created = seed_default_ai_models(
+            user=request.user if request.user.is_authenticated else None
+        )
+        return Response({'created': created, 'count': len(created)})
+
+    @staticmethod
+    def _serialize(config: AIModelConfig) -> dict:
+        safe_config = dict(config.config or {})
+        if 'api_key' in safe_config and safe_config['api_key']:
+            safe_config['api_key'] = '••••••••'
+        return {
+            'id': str(config.id),
+            'name': config.name,
+            'model_type': config.model_type,
+            'provider': config.provider,
+            'model_id': config.model_id,
+            'capabilities': config.capabilities or [],
+            'is_active': config.is_active,
+            'is_default': config.is_default,
+            'config': safe_config,
+            'created_at': config.created_at.isoformat() if config.created_at else None,
+            'updated_at': config.updated_at.isoformat() if config.updated_at else None,
+        }
+
 
 class MultiModalIntelligenceViewSet(viewsets.ViewSet):
     """Multi-modal intelligence processing"""
@@ -357,7 +425,7 @@ class MultiModalIntelligenceViewSet(viewsets.ViewSet):
 
 class MultiModelViewSet(viewsets.ViewSet):
     """ViewSet for multi-model orchestration operations"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny] if settings.DEBUG else [IsAuthenticated]
     
     @action(detail=False, methods=['post'])
     def chat(self, request):
@@ -605,4 +673,89 @@ class MultiModelViewSet(viewsets.ViewSet):
             )
         except Exception as e:
             logger.error(f"Failed to log execution: {e}")
+
+
+class ModelCoordinationViewSet(viewsets.ViewSet):
+    """Coordinate registered AI models with each other."""
+    permission_classes = [AllowAny] if settings.DEBUG else [IsAuthenticated]
+
+    @action(detail=False, methods=['post'])
+    def run(self, request):
+        """
+        POST /intelligence/api/coordinate/run/
+        {
+          "prompt": "...",
+          "mode": "route|collaborative|debate|pipeline",
+          "model_ids": ["uuid", ...],  // optional
+          "options": { "rounds": 2, "priority": "balanced", "judge_model_id": "..." }
+        }
+        """
+        prompt = (request.data.get('prompt') or request.data.get('task') or '').strip()
+        mode = (request.data.get('mode') or 'route').lower()
+        model_ids = request.data.get('model_ids') or []
+        options = request.data.get('options') or {}
+
+        if not prompt:
+            return Response({'error': 'prompt is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            service = get_coordination_service()
+            result = service.run(
+                mode=mode,
+                prompt=prompt,
+                model_ids=[str(i) for i in model_ids] if model_ids else None,
+                options=options,
+                user=request.user if request.user.is_authenticated else None,
+            )
+            return Response(result)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.exception('Model coordination failed')
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'])
+    def history(self, request):
+        qs = ModelCoordinationRun.objects.all()
+        if request.user.is_authenticated:
+            qs = qs.filter(user=request.user)
+        qs = qs[:30]
+        data = [{
+            'id': str(r.id),
+            'mode': r.mode,
+            'prompt': r.prompt[:200],
+            'status': r.status,
+            'final_answer': (r.final_answer or '')[:500],
+            'duration_ms': r.duration_ms,
+            'model_ids': r.model_ids,
+            'created_at': r.created_at.isoformat(),
+        } for r in qs]
+        return Response({'results': data, 'count': len(data)})
+
+    @action(detail=False, methods=['get'])
+    def modes(self, request):
+        return Response({
+            'modes': [
+                {
+                    'id': 'route',
+                    'name': 'Smart Route',
+                    'description': 'Pick the best model and failover across the others',
+                },
+                {
+                    'id': 'collaborative',
+                    'name': 'Collaborative',
+                    'description': 'Models propose together, refine a shared draft, then synthesize',
+                },
+                {
+                    'id': 'debate',
+                    'name': 'Debate / Consensus',
+                    'description': 'Independent answers, peer critique, then a judge picks the winner',
+                },
+                {
+                    'id': 'pipeline',
+                    'name': 'Sequential Pipeline',
+                    'description': 'Each model processes the previous stage output in order',
+                },
+            ]
+        })
 

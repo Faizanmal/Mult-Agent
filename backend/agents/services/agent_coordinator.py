@@ -13,6 +13,8 @@ from .audio_service import AudioService
 from .rag_system import VectorDatabase, RAGSystem
 from .agent_selector import SmartAgentSelector
 
+from api_integrations.registry import IntegrationToolRegistry
+
 logger = logging.getLogger(__name__)
 
 # Module-level RAG singleton — initialised lazily so startup isn't blocked
@@ -42,6 +44,108 @@ class AgentCoordinator:
         self.agent_selector = SmartAgentSelector()
         self.active_agents = {}
         self.task_queue = []
+
+    def _session_user(self):
+        return getattr(self.session, 'user', None)
+
+    def _is_integration_request(self, content: str) -> bool:
+        return IntegrationToolRegistry.detect_intent(content) is not None
+
+    def _is_email_request(self, content: str) -> bool:
+        return IntegrationToolRegistry.detect_intent(content) == 'gmail'
+
+    def _default_integration_tool(self, intent: str, content: str):
+        """Pick the primary read tool for a provider intent."""
+        c = content.lower()
+        if intent == 'gmail':
+            max_results = 5
+            m = re.search(r'(\d+)\s*(?:email|mail|message)', c)
+            if m:
+                max_results = min(int(m.group(1)), 20)
+            return 'gmail.read_inbox', {'max_results': max_results}
+        if intent == 'slack':
+            if any(w in c for w in ('post', 'send', 'message')):
+                return 'slack.post_message', {}
+            if 'history' in c or 'messages' in c:
+                return 'slack.read_history', {'channel': '', 'limit': 10}
+            return 'slack.list_channels', {}
+        if intent == 'github':
+            if 'issue' in c:
+                return 'github.list_issues', {}
+            if 'readme' in c:
+                return 'github.get_readme', {}
+            return 'github.list_repos', {'limit': 10}
+        if intent == 'openai':
+            return 'openai.chat', {'prompt': content}
+        if intent == 'anthropic':
+            return 'anthropic.chat', {'prompt': content}
+        if intent == 'notion':
+            return 'notion.search', {'query': content}
+        if intent == 'jira':
+            return 'jira.list_issues', {'jql': 'assignee = currentUser() ORDER BY updated DESC'}
+        if intent == 'discord':
+            return 'discord.list_channels', {}
+        if intent == 's3':
+            return 's3.list_buckets', {}
+        return None, {}
+
+    def _agent_for_provider(self, provider_key: str) -> str:
+        agent = self.session.agents.filter(
+            configuration__contains={'provider': provider_key}
+        ).first()
+        if not agent:
+            agent = self.session.agents.filter(name__icontains=provider_key).first()
+        return agent.name if agent else f"{provider_key.title()} Agent"
+
+    def _handle_integration_request(self, message: Message) -> Dict[str, Any]:
+        """Fast-path: call real integration API + LLM analysis."""
+        intent = IntegrationToolRegistry.detect_intent(message.content)
+        if not intent:
+            return {'content': 'No matching integration found.', 'synthesized': False}
+
+        tool_name, params = self._default_integration_tool(intent, message.content)
+        if not tool_name:
+            return {'content': f'No tool available for {intent}.', 'synthesized': False}
+
+        user = self._session_user()
+        fetch_result = IntegrationToolRegistry.execute(tool_name, params, user=user)
+        if fetch_result.get('status') == 'error':
+            return {
+                'content': fetch_result.get('message', 'Integration call failed.'),
+                'synthesized': False,
+                'routing': 'integration_fast_path',
+            }
+
+        agent_label = self._agent_for_provider(intent)
+        analysis_prompt = (
+            f"User request: {message.content}\n\n"
+            f"Integration tool `{tool_name}` returned:\n{json.dumps(fetch_result, indent=2, default=str)}\n\n"
+            "Provide a clear, actionable response. If the user asked to answer emails, draft suggested replies."
+        )
+        response = self.groq_service.chat_completion([
+            {
+                "role": "system",
+                "content": (
+                    f"You are {agent_label} with sub-agents for read, analyze, and write tasks. "
+                    "Use the integration data to fulfill the user's request precisely."
+                ),
+            },
+            {"role": "user", "content": analysis_prompt},
+        ], max_tokens=1500, temperature=0.3)
+
+        return {
+            'content': response.get('content') or 'No analysis generated.',
+            'integration_data': fetch_result,
+            'synthesized': True,
+            'routing': 'integration_fast_path',
+            'agent': agent_label,
+            'provider': intent,
+            'tool_used': tool_name,
+        }
+
+    def _handle_email_request(self, message: Message) -> Dict[str, Any]:
+        """Backward-compatible alias for Gmail integration fast-path."""
+        return self._handle_integration_request(message)
         
     def process_message(self, message: Message) -> Dict[str, Any]:
         """
@@ -50,6 +154,18 @@ class AgentCoordinator:
         and uses the MultiModelOrchestrator for intelligent provider selection.
         """
         logger.info(f"Processing message: {message.id}")
+
+        # ── Fast-path: integration read/analyze (real APIs, single LLM pass) ──
+        if self._is_integration_request(message.content):
+            final_response = self._handle_integration_request(message)
+            self._send_response_to_session(final_response, message)
+            return {
+                'message_id': str(message.id),
+                'agents_involved': [final_response.get('agent', 'Integration Agent')],
+                'tasks_created': 0,
+                'response': final_response,
+                'routing': final_response.get('routing', 'integration_fast_path'),
+            }
 
         # ── Detect task complexity & choose execution path ───────────────────
         if self._is_complex_workflow(message.content):
@@ -341,6 +457,15 @@ class AgentCoordinator:
             if relevant_agents:
                 return relevant_agents
 
+        # ── Email requests: orchestrator only (avoid slow reasoning pass) ────
+        if self._is_email_request(message.content):
+            orchestrator = session_agents.filter(type='orchestrator').first()
+            email_agent = session_agents.filter(name__icontains='email').first()
+            if orchestrator:
+                return [orchestrator]
+            if email_agent:
+                return [email_agent]
+
         # ── Step 3: Keyword fallback ─────────────────────────────────────────
         relevant_agents = []
         orchestrator = session_agents.filter(type='orchestrator').first()
@@ -368,6 +493,7 @@ class AgentCoordinator:
         task = Task.objects.create(
             session=self.session,
             assigned_agent=agent,
+            created_by=self.session.user,
             title=f"Process {message.message_type} message",
             description=f"Process message: {message.content[:100]}...",
             input_data={
@@ -405,6 +531,17 @@ class AgentCoordinator:
         Uses MultiModelOrchestrator for intelligent provider selection
         (falls back to GroqService if unavailable).
         """
+        # If orchestrator already produced a user-facing answer, skip re-synthesis
+        for result in results.values():
+            resp = result.get('response', {})
+            if isinstance(resp, dict) and resp.get('content') and result.get('agent_type') == 'orchestrator':
+                return {
+                    'content': resp['content'],
+                    'agent_results': results,
+                    'synthesized': True,
+                    'routing': 'orchestrator_direct',
+                }
+
         orchestrator = self._get_agent_by_type('orchestrator')
 
         if not orchestrator:
@@ -442,7 +579,7 @@ class AgentCoordinator:
             synthesis = self.groq_service.chat_completion(messages)
 
         return {
-            'content': synthesis.get('content', 'Error synthesizing responses'),
+            'content': synthesis.get('content') or 'Error synthesizing responses',
             'agent_results': results,
             'synthesized': True,
             'orchestrator': orchestrator.name,
@@ -490,6 +627,8 @@ class AgentCoordinator:
             f"{a.name}(type={a.type}, id={a.id})" for a in session_agents
         )
 
+        integration_tools = IntegrationToolRegistry.tools_prompt(user=self._session_user())
+
         # ── ReAct system prompt ──────────────────────────────────────────────
         react_system = (
             "You are an Orchestrator Agent running a ReAct (Reason + Act) loop.\n\n"
@@ -499,19 +638,19 @@ class AgentCoordinator:
             "  Action Input: <JSON arguments for the tool>\n"
             "OR, when you have enough information:\n"
             "  Final Answer: <your complete, well-formatted response to the user>\n\n"
-            "Available tools:\n"
-            "  execute_agent_task(agent_type, task_description, context_json) — run a specialist agent\n"
+            "Core tools:\n"
+            "  execute_agent_task(agent_type, task_description, context_json) — run a specialist sub-agent\n"
             "  search_memory(query, session_id, agent_id) — look up past knowledge\n"
-            "  store_insight(key, value, session_id, importance) — save important findings\n"
-            "  plan_task_decomposition(task_description, available_agents) — build a step plan\n\n"
-            f"Available agents: {agent_list}\n"
+            "  store_insight(key, value, session_id, importance, agent_id) — save findings\n"
+            "  plan_task_decomposition(task_description, available_agents) — build a step plan\n"
+            "  run_integration_tool(tool_name, params) — call a connected integration API\n\n"
+            f"Connected integration tools:\n{integration_tools}\n\n"
+            f"Available sub-agents: {agent_list}\n"
             f"Recent memory:\n{memory_str}\n\n"
             "Rules:\n"
-            "- Never skip the Thought step.\n"
-            "- Always call at least plan_task_decomposition before delegating work.\n"
-            "- Use execute_agent_task to get REAL responses from specialists.\n"
-            "- Store key intermediate results with store_insight.\n"
-            "- Produce Final Answer only after you have gathered enough information."
+            "- Delegate read tasks to integration tools, analysis to reasoning sub-agents.\n"
+            "- Use run_integration_tool with exact tool names (e.g. gmail.read_inbox).\n"
+            "- Produce Final Answer only after gathering real data from tools."
         )
 
         conversation: List[Dict[str, str]] = [
@@ -555,7 +694,14 @@ class AgentCoordinator:
 
                 elif tool_name == "store_insight":
                     from ..models import AgentMemory
+                    agent_id = tool_input.get("agent_id")
+                    agent = Agent.objects.filter(id=agent_id).first() if agent_id else None
+                    if not agent:
+                        agent = self.session.agents.filter(type='orchestrator').first()
+                    if not agent:
+                        return json.dumps({"status": "error", "message": "No agent available for storing insight"})
                     AgentMemory.objects.create(
+                        agent=agent,
                         session=self.session,
                         key=tool_input.get("key", f"insight_{datetime.now().strftime('%H%M%S')}"),
                         value={"content": tool_input.get("value", ""), "ts": datetime.now().isoformat()},
@@ -564,12 +710,38 @@ class AgentCoordinator:
                     return json.dumps({"status": "success"})
 
                 elif tool_name == "plan_task_decomposition":
-                    from .langchain_coordinator import plan_task_decomposition
-                    r = plan_task_decomposition.invoke({
-                        "task_description": tool_input.get("task_description", ""),
-                        "available_agents": tool_input.get("available_agents", agent_list),
+                    task_desc = tool_input.get("task_description", "")
+                    agents_avail = tool_input.get("available_agents", agent_list)
+                    plan_msgs = [
+                        {"role": "system", "content": "Return a JSON object with keys: plan (string), steps (array of strings)."},
+                        {"role": "user", "content": f"Task: {task_desc}\nAgents: {agents_avail}\nIntegrations:\n{integration_tools}"},
+                    ]
+                    plan_resp = self.groq_service.chat_completion(plan_msgs, max_tokens=256, temperature=0.2)
+                    try:
+                        match = re.search(r'\{.*\}', plan_resp.get('content', ''), re.DOTALL)
+                        if match:
+                            return json.dumps({"status": "success", **json.loads(match.group())})
+                    except json.JSONDecodeError:
+                        pass
+                    return json.dumps({
+                        "status": "success",
+                        "plan": plan_resp.get('content', task_desc),
+                        "steps": ["Analyze request", "Run integration tools", "Synthesize response"],
                     })
-                    return json.dumps(r)
+
+                elif tool_name in ("run_integration_tool", "read_gmail"):
+                    if tool_name == "read_gmail":
+                        tname = "gmail.read_inbox"
+                        tparams = {"max_results": tool_input.get("max_results", 5)}
+                    else:
+                        tname = tool_input.get("tool_name", "")
+                        tparams = tool_input.get("params", {})
+                    result = IntegrationToolRegistry.execute(tname, tparams, user=self._session_user())
+                    return json.dumps(result)
+
+                elif "." in tool_name:
+                    result = IntegrationToolRegistry.execute(tool_name, tool_input, user=self._session_user())
+                    return json.dumps(result)
 
                 else:
                     return json.dumps({"error": f"Unknown tool: {tool_name}"})
@@ -617,7 +789,14 @@ class AgentCoordinator:
                     "content": f"Observation: {observation}",
                 })
             else:
-                # No action found — the LLM may already be concluding
+                # No action found
+                if "Thought:" in raw and "Final Answer:" not in raw:
+                    conversation.append({
+                        "role": "user",
+                        "content": "You provided a Thought but no Action or Final Answer. Please provide an Action or Final Answer in the correct format.",
+                    })
+                    continue
+                    
                 if raw.strip():
                     final_answer = raw.strip()
                 break

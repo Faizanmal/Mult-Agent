@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
+from datetime import timedelta as _td
 from pathlib import Path
 import os
 from dotenv import load_dotenv
@@ -57,6 +58,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework_simplejwt',
     'corsheaders',
     'channels',
     'agents',
@@ -237,7 +239,10 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.TokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny' if DEBUG else 'authentication.rbac.RBACPermission',
+        'rest_framework.permissions.AllowAny',
+    ] if DEBUG else [
+        # Authenticated by default; use authentication.rbac.RBACPermission on specific views
+        'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
@@ -297,9 +302,53 @@ CELERY_TIMEZONE = TIME_ZONE
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 AZURE_API_KEY = os.getenv('AZURE_API_KEY')
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', 'sk_test_dummy')
+STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', 'whsec_dummy')
 
-# JWT Secret - Use separate secret for JWT signing
+# ---------------------------------------------------------------------------
+# JWT configuration
+# ---------------------------------------------------------------------------
 JWT_SECRET = os.getenv('JWT_SECRET', SECRET_KEY)
+JWT_REFRESH_SECRET = os.getenv('JWT_REFRESH_SECRET', JWT_SECRET)
+JWT_ISSUER = os.getenv('JWT_ISSUER', 'multiagent-ai')
+JWT_AUDIENCE = os.getenv('JWT_AUDIENCE', 'multiagent-ai-client')
+
+# ---------------------------------------------------------------------------
+# Firebase configuration
+# ---------------------------------------------------------------------------
+FIREBASE_PROJECT_ID = os.getenv('FIREBASE_PROJECT_ID', '')
+FIREBASE_CLIENT_EMAIL = os.getenv('FIREBASE_CLIENT_EMAIL', '')
+FIREBASE_PRIVATE_KEY = os.getenv('FIREBASE_PRIVATE_KEY', '').replace('\\n', '\n')
+FIREBASE_PRIVATE_KEY_ID = os.getenv('FIREBASE_PRIVATE_KEY_ID', '')
+FIREBASE_API_KEY = os.getenv('FIREBASE_API_KEY', '')
+FIREBASE_CHECK_REVOKED = not DEBUG  # Only check token revocation in production
+
+# ---------------------------------------------------------------------------
+# Google OAuth
+# ---------------------------------------------------------------------------
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '')
+GOOGLE_REDIRECT_URI = os.getenv(
+    'GOOGLE_REDIRECT_URI',
+    'http://localhost:8000/api/auth/google/callback/'
+)
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth
+# ---------------------------------------------------------------------------
+GITHUB_CLIENT_ID = os.getenv('GITHUB_CLIENT_ID', '')
+GITHUB_CLIENT_SECRET = os.getenv('GITHUB_CLIENT_SECRET', '')
+GITHUB_REDIRECT_URI = os.getenv(
+    'GITHUB_REDIRECT_URI',
+    'http://localhost:8000/api/auth/github/callback/'
+)
+
+# ---------------------------------------------------------------------------
+# Frontend / CORS
+# ---------------------------------------------------------------------------
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')
 
 # File Upload Settings
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
@@ -410,6 +459,29 @@ GROQ_CONFIG = {
     'OPTIMIZE_FOR_PERFORMANCE': True,
     'CACHE_RESPONSES': True,
     'CACHE_TTL': 300,  # 5 minutes
+}
+
+# SimpleJWT Configuration (used only for legacy /token/refresh/ endpoint)
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': _td(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': _td(days=30),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': False,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': JWT_SECRET,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+# Authentication logging
+LOGGING['loggers']['authentication'] = {
+    'handlers': ['console', 'file'],
+    'level': 'INFO',
+    'propagate': False,
+}
+LOGGING['loggers']['authentication.audit'] = {
+    'handlers': ['console', 'file'],
+    'level': 'INFO',
+    'propagate': False,
 }
 
 # MCP Configuration

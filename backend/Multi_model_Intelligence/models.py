@@ -300,12 +300,50 @@ class CrossModalInsight(models.Model):
     description = models.TextField()
     confidence = models.FloatField(default=0.0)
     evidence = models.JSONField(default=dict)
-    
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         db_table = 'multimodal_cross_insights'
-        ordering = ['created_at']
-    
+        ordering = ['-confidence', '-created_at']
+
     def __str__(self):
-        return f"{self.session.name} - {self.insight_type}"
+        return f"{self.insight_type} ({self.confidence:.2f})"
+
+
+class ModelCoordinationRun(models.Model):
+    """Audit log for multi-model coordination runs (route/collaborate/debate/pipeline)."""
+
+    MODE_CHOICES = [
+        ('route', 'Smart Route'),
+        ('collaborative', 'Collaborative'),
+        ('debate', 'Debate / Consensus'),
+        ('pipeline', 'Sequential Pipeline'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='model_coordination_runs',
+    )
+    mode = models.CharField(max_length=20, choices=MODE_CHOICES)
+    prompt = models.TextField()
+    model_ids = models.JSONField(default=list)
+    options = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    result = models.JSONField(default=dict, blank=True)
+    final_answer = models.TextField(blank=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'multimodel_coordination_runs'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.mode} ({self.status})"

@@ -1,30 +1,21 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+import { defineConfig } from "eslint/config";
+import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
+import nextTypescript from "eslint-config-next/typescript";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
-
-const eslintConfig = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
-  {
-    ignores: [
-      "node_modules/**",
-      ".next/**",
-      "out/**",
-      "build/**",
-      "next-env.d.ts",
-    ],
-  },
+const eslintConfig = defineConfig([
+  ...nextCoreWebVitals,
+  ...nextTypescript,
   {
     rules: {
-      "react-refresh/only-export-components": "off",
+      "react-hooks/exhaustive-deps": "warn",
+      // React Compiler rules — too strict for current codebase patterns (effects, window, Date.now)
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/immutability": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
+      "react-hooks/incompatible-library": "error",
     },
   },
-];
+]);
 
 export default eslintConfig;

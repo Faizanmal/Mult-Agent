@@ -1,398 +1,546 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from 'react';
 import { jwtDecode } from 'jwt-decode';
 
-interface User {
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface AuthProvider {
+  id: string;
+  provider: 'email' | 'google' | 'github' | 'firebase';
+  email?: string;
+  display_name?: string;
+  avatar_url?: string;
+  created_at: string;
+}
+
+export interface User {
   id: string;
   username: string;
   email: string;
   first_name?: string;
   last_name?: string;
+  display_name?: string;
   avatar?: string;
   role: 'admin' | 'user' | 'viewer';
-  permissions: string[];
   subscription_tier: 'free' | 'pro' | 'enterprise';
-  last_login?: string;
+  is_email_verified?: boolean;
+  date_joined: string;
+  providers?: AuthProvider[];
+}
+
+export interface Session {
+  id: string;
+  session_id: string | null;
+  provider: string;
+  device_name: string;
+  device_type: string;
+  browser: string;
+  os: string;
+  ip_address: string | null;
   created_at: string;
+  last_used_at: string | null;
+  expires_at: string;
 }
 
 interface AuthState {
   user: User | null;
-  token: string | null;
+  accessToken: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  permissions: string[];
-}
-
-interface AuthContextType extends AuthState {
-  login: (email: string, password: string, rememberMe?: boolean) => Promise<boolean>;
-  logout: () => void;
-  register: (userData: RegisterData) => Promise<boolean>;
-  updateProfile: (data: Partial<User>) => Promise<boolean>;
-  changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
-  resetPassword: (email: string) => Promise<boolean>;
-  refreshToken: () => Promise<boolean>;
-  hasPermission: (permission: string) => boolean;
-  hasRole: (role: string) => boolean;
-  enable2FA: (secret: string) => Promise<boolean>;
-  disable2FA: (password: string) => Promise<boolean>;
-  verify2FA: (token: string) => Promise<boolean>;
 }
 
 interface RegisterData {
-  username: string;
+  username?: string;
   email: string;
   password: string;
   first_name?: string;
   last_name?: string;
 }
 
+interface AuthContextType extends AuthState {
+  login: (email: string, password: string) => Promise<boolean>;
+  loginWithGoogle: () => Promise<boolean>;
+  loginWithGitHub: () => Promise<boolean>;
+  loginWithFirebase: (idToken: string) => Promise<boolean>;
+  register: (data: RegisterData) => Promise<boolean>;
+  logout: () => Promise<void>;
+  logoutAll: () => Promise<void>;
+  refreshTokens: () => Promise<boolean>;
+  updateProfile: (data: Partial<User>) => Promise<boolean>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
+  resetPassword: (email: string) => Promise<boolean>;
+  linkGoogle: () => Promise<string | null>;
+  linkGitHub: () => Promise<string | null>;
+  unlinkGoogle: () => Promise<boolean>;
+  unlinkGitHub: () => Promise<boolean>;
+  getSessions: () => Promise<Session[]>;
+  revokeSession: (sessionId: string) => Promise<boolean>;
+  hasPermission: (permission: string) => boolean;
+  hasRole: (role: string) => boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const AUTH_BASE = `${API_BASE}/api/auth`;
+
+const TOKEN_KEY = 'access_token';
+const REFRESH_KEY = 'refresh_token';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function storeTokens(access: string, refresh?: string) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(TOKEN_KEY, access);
+  localStorage.setItem('auth_token', access); // legacy api client key
+  if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
+}
+
+function clearTokens() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  // Clear legacy token keys used by older clients
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('token');
+  localStorage.removeItem('refreshToken');
+}
+
+function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function getStoredRefresh(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(REFRESH_KEY);
+}
+
+function isTokenExpired(token: string): boolean {
+  try {
+    const decoded = jwtDecode<{ exp: number }>(token);
+    return (decoded.exp || 0) * 1000 < Date.now() + 60_000; // 1-minute buffer
+  } catch {
+    return true;
+  }
+}
+
+async function apiFetch(
+  url: string,
+  options: RequestInit = {},
+  token?: string | null,
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return fetch(url, { ...options, headers });
+}
+
+// ---------------------------------------------------------------------------
+// Context
+// ---------------------------------------------------------------------------
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [authState, setAuthState] = useState<AuthState>({
+  const [state, setState] = useState<AuthState>({
     user: null,
-    token: null,
+    accessToken: null,
     isLoading: true,
     isAuthenticated: false,
-    permissions: []
   });
 
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ---------- internal helpers ----------
 
+  const scheduleRefresh = useCallback((expiresIn = 900) => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    const delay = Math.max((expiresIn - 60) * 1000, 30_000);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTokens();
+    }, delay);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-
-  const logout = useCallback(() => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    setAuthState({
-      user: null,
-      token: null,
+  const setAuthenticated = useCallback((user: User, access: string, expiresIn = 900) => {
+    setState({
+      user,
+      accessToken: access,
+      isAuthenticated: true,
       isLoading: false,
-      isAuthenticated: false,
-      permissions: []
     });
-  }, [setAuthState]);
+    scheduleRefresh(expiresIn);
+  }, [scheduleRefresh]);
 
-  const fetchUserProfile = useCallback(async (token: string) => {
+  const setUnauthenticated = useCallback(() => {
+    clearTokens();
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    setState({ user: null, accessToken: null, isAuthenticated: false, isLoading: false });
+  }, []);
+
+  // ---------- token refresh ----------
+
+  const refreshTokens = useCallback(async (): Promise<boolean> => {
+    const rawRefresh = getStoredRefresh();
+    if (!rawRefresh) {
+      setUnauthenticated();
+      return false;
+    }
+
     try {
-      const response = await fetch('http://localhost:8000/api/auth/profile/', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        }
+      const resp = await apiFetch(`${AUTH_BASE}/refresh/`, {
+        method: 'POST',
+        body: JSON.stringify({ refresh_token: rawRefresh }),
       });
 
-      if (response.ok) {
-        const userData = await response.json();
-        setAuthState(prev => ({
-          ...prev,
-          user: userData,
-          token,
-          isAuthenticated: true,
-          permissions: userData.permissions || []
-        }));
+      if (!resp.ok) {
+        setUnauthenticated();
+        return false;
+      }
+
+      const data = await resp.json();
+      storeTokens(data.access_token, data.refresh_token);
+      if (data.user) {
+        setAuthenticated(data.user, data.access_token, data.expires_in);
+      }
+      return true;
+    } catch {
+      setUnauthenticated();
+      return false;
+    }
+  }, [setAuthenticated, setUnauthenticated]);
+
+  // ---------- fetch profile ----------
+
+  const fetchProfile = useCallback(async (token: string): Promise<User | null> => {
+    try {
+      const resp = await apiFetch(`${AUTH_BASE}/me/`, {}, token);
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // ---------- init from stored token ----------
+
+  useEffect(() => {
+    const init = async () => {
+      const access = getStoredToken();
+      if (!access) {
+        setState(prev => ({ ...prev, isLoading: false }));
+        return;
+      }
+
+      if (isTokenExpired(access)) {
+        const ok = await refreshTokens();
+        if (!ok) setState(prev => ({ ...prev, isLoading: false }));
+        return;
+      }
+
+      const user = await fetchProfile(access);
+      if (user) {
+        setAuthenticated(user, access);
       } else {
-        throw new Error('Failed to fetch user profile');
+        const ok = await refreshTokens();
+        if (!ok) setState(prev => ({ ...prev, isLoading: false }));
       }
-    } catch (error) {
-      console.error('Failed to fetch user profile:', error);
-      logout();
-    }
-  }, [setAuthState, logout]);
+    };
 
-  const login = async (email: string, password: string, rememberMe = false): Promise<boolean> => {
+    init();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------- public methods ----------
+
+  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
+    setState(prev => ({ ...prev, isLoading: true }));
     try {
-      setAuthState(prev => ({ ...prev, isLoading: true }));
-      
-      const response = await fetch('http://localhost:8000/api/auth/login/', {
+      const resp = await apiFetch(`${AUTH_BASE}/v2/login/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password, remember_me: rememberMe })
+        body: JSON.stringify({ email, password }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        const { access_token, user } = data;
-        
-        // Store tokens
-        localStorage.setItem('access_token', access_token);
-        if (data.refresh_token) {
-          localStorage.setItem('refresh_token', data.refresh_token);
-        }
-
-        setAuthState(prev => ({
-          ...prev,
-          user,
-          token: access_token,
-          isAuthenticated: true,
-          permissions: user.permissions || [],
-          isLoading: false
-        }));
-
-        return true;
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Login failed');
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-      setAuthState(prev => ({ ...prev, isLoading: false }));
-      return false;
-    }
-  };
-
-  const register = async (userData: RegisterData): Promise<boolean> => {
-    try {
-      setAuthState(prev => ({ ...prev, isLoading: true }));
-      
-      const response = await fetch('http://localhost:8000/api/auth/register/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userData)
-      });
-
-      if (response.ok) {
-        // Auto-login after registration
-        return await login(userData.email, userData.password);
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Registration failed');
-      }
-    } catch (error) {
-      console.error('Registration error:', error);
-      setAuthState(prev => ({ ...prev, isLoading: false }));
-      return false;
-    }
-  };
-
-  
-
-  const refreshToken = useCallback(async (): Promise<boolean> => {
-    try {
-      const refresh_token = localStorage.getItem('refresh_token');
-      if (!refresh_token) {
-        throw new Error('No refresh token available');
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || 'Login failed');
       }
 
-      const response = await fetch('http://localhost:8000/api/auth/refresh/', {
+      const data = await resp.json();
+      storeTokens(data.access_token, data.refresh_token);
+      setAuthenticated(data.user, data.access_token, data.expires_in);
+      return true;
+    } catch (err) {
+      setState(prev => ({ ...prev, isLoading: false }));
+      throw err;
+    }
+  }, [setAuthenticated]);
+
+  const register = useCallback(async (userData: RegisterData): Promise<boolean> => {
+    setState(prev => ({ ...prev, isLoading: true }));
+    try {
+      const resp = await apiFetch(`${AUTH_BASE}/v2/register/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ refresh: refresh_token })
+        body: JSON.stringify(userData),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        localStorage.setItem('access_token', data.access);
-        await fetchUserProfile(data.access);
-        return true;
-      } else {
-        throw new Error('Token refresh failed');
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || 'Registration failed');
       }
-    } catch (error) {
-      console.error('Token refresh error:', error);
-      logout();
-      return false;
+
+      const data = await resp.json();
+      storeTokens(data.access_token, data.refresh_token);
+      setAuthenticated(data.user, data.access_token, data.expires_in);
+      return true;
+    } catch (err) {
+      setState(prev => ({ ...prev, isLoading: false }));
+      throw err;
     }
-  }, [fetchUserProfile, logout]);
+  }, [setAuthenticated]);
 
-  const checkAuthStatus = useCallback(async () => {
+  const logout = useCallback(async (): Promise<void> => {
+    const rawRefresh = getStoredRefresh();
+    if (state.accessToken) {
+      await apiFetch(
+        `${AUTH_BASE}/logout-current/`,
+        { method: 'POST', body: JSON.stringify({ refresh_token: rawRefresh || '' }) },
+        state.accessToken,
+      ).catch(() => {});
+    }
+    setUnauthenticated();
+  }, [state.accessToken, setUnauthenticated]);
+
+  const logoutAll = useCallback(async (): Promise<void> => {
+    if (state.accessToken) {
+      await apiFetch(
+        `${AUTH_BASE}/logout-all/`,
+        { method: 'POST' },
+        state.accessToken,
+      ).catch(() => {});
+    }
+    setUnauthenticated();
+  }, [state.accessToken, setUnauthenticated]);
+
+  // OAuth helpers: redirect to backend-provided URL
+  const loginWithGoogle = useCallback(async (): Promise<boolean> => {
+    const resp = await apiFetch(`${AUTH_BASE}/google/`, { method: 'POST' });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to initiate Google login');
+    }
+    const { authorization_url } = await resp.json();
+    if (!authorization_url) throw new Error('No authorization URL returned');
+    window.location.href = authorization_url;
+    return true;
+  }, []);
+
+  const loginWithGitHub = useCallback(async (): Promise<boolean> => {
+    const resp = await apiFetch(`${AUTH_BASE}/github/`, { method: 'POST' });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to initiate GitHub login');
+    }
+    const { authorization_url } = await resp.json();
+    if (!authorization_url) throw new Error('No authorization URL returned');
+    window.location.href = authorization_url;
+    return true;
+  }, []);
+
+  const loginWithFirebase = useCallback(async (idToken: string): Promise<boolean> => {
+    setState(prev => ({ ...prev, isLoading: true }));
     try {
-      const token = localStorage.getItem('access_token');
-      if (token) {
-        const decodedToken = jwtDecode<{ exp: number }>(token);
-
-        // Check if token is expired
-        if ((decodedToken.exp || 0) * 1000 < Date.now()) {
-          await refreshToken();
-        } else {
-          await fetchUserProfile(token);
-        }
+      const resp = await apiFetch(`${AUTH_BASE}/firebase/`, {
+        method: 'POST',
+        body: JSON.stringify({ id_token: idToken }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || 'Firebase login failed');
       }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      logout();
-    } finally {
-      setAuthState(prev => ({ ...prev, isLoading: false }));
+      const data = await resp.json();
+      storeTokens(data.access_token, data.refresh_token);
+      setAuthenticated(data.user, data.access_token, data.expires_in);
+      return true;
+    } catch (err) {
+      setState(prev => ({ ...prev, isLoading: false }));
+      throw err;
     }
-  }, [refreshToken, fetchUserProfile, logout, setAuthState]);
+  }, [setAuthenticated]);
 
-  const updateProfile = async (data: Partial<User>): Promise<boolean> => {
-    try {
-      if (!authState.token) return false;
-
-      const response = await fetch('http://localhost:8000/api/auth/profile/', {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
-      });
-
-      if (response.ok) {
-        const updatedUser = await response.json();
-        setAuthState(prev => ({
-          ...prev,
-          user: updatedUser
-        }));
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Profile update error:', error);
-      return false;
+  // Called after OAuth callback completes and URL has tokens
+  const handleOAuthCallback = useCallback(async (access: string, refresh: string): Promise<void> => {
+    storeTokens(access, refresh);
+    const user = await fetchProfile(access);
+    if (user) {
+      setAuthenticated(user, access);
     }
-  };
+  }, [fetchProfile, setAuthenticated]);
 
-  const changePassword = async (currentPassword: string, newPassword: string): Promise<boolean> => {
-    try {
-      if (!authState.token) return false;
+  const updateProfile = useCallback(async (data: Partial<User>): Promise<boolean> => {
+    if (!state.accessToken) return false;
+    const resp = await apiFetch(
+      `${AUTH_BASE}/profile/update/`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+      state.accessToken,
+    );
+    if (resp.ok) {
+      const updated = await resp.json();
+      setState(prev => ({ ...prev, user: updated }));
+    }
+    return resp.ok;
+  }, [state.accessToken]);
 
-      const response = await fetch('http://localhost:8000/api/auth/change-password/', {
+  const changePassword = useCallback(async (
+    currentPassword: string, newPassword: string
+  ): Promise<boolean> => {
+    if (!state.accessToken) return false;
+    const resp = await apiFetch(
+      `${AUTH_BASE}/change-password/`,
+      {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          current_password: currentPassword,
-          new_password: newPassword
-        })
-      });
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      },
+      state.accessToken,
+    );
+    return resp.ok;
+  }, [state.accessToken]);
 
-      return response.ok;
-    } catch (error) {
-      console.error('Password change error:', error);
-      return false;
-    }
-  };
+  const resetPassword = useCallback(async (email: string): Promise<boolean> => {
+    const resp = await apiFetch(
+      `${AUTH_BASE}/forgot-password/`,
+      { method: 'POST', body: JSON.stringify({ email }) },
+    );
+    return resp.ok;
+  }, []);
 
-  const resetPassword = async (email: string): Promise<boolean> => {
-    try {
-      const response = await fetch('http://localhost:8000/api/auth/reset-password/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email })
-      });
+  const linkGoogle = useCallback(async (): Promise<string | null> => {
+    if (!state.accessToken) return null;
+    const resp = await apiFetch(
+      `${AUTH_BASE}/link/google/`,
+      { method: 'POST' },
+      state.accessToken,
+    );
+    if (!resp.ok) return null;
+    const { authorization_url } = await resp.json();
+    return authorization_url;
+  }, [state.accessToken]);
 
-      return response.ok;
-    } catch (error) {
-      console.error('Password reset error:', error);
-      return false;
-    }
-  };
+  const linkGitHub = useCallback(async (): Promise<string | null> => {
+    if (!state.accessToken) return null;
+    const resp = await apiFetch(
+      `${AUTH_BASE}/link/github/`,
+      { method: 'POST' },
+      state.accessToken,
+    );
+    if (!resp.ok) return null;
+    const { authorization_url } = await resp.json();
+    return authorization_url;
+  }, [state.accessToken]);
 
-  const enable2FA = async (secret: string): Promise<boolean> => {
-    try {
-      if (!authState.token) return false;
+  const unlinkGoogle = useCallback(async (): Promise<boolean> => {
+    if (!state.accessToken) return false;
+    const resp = await apiFetch(
+      `${AUTH_BASE}/unlink/google/`,
+      { method: 'DELETE' },
+      state.accessToken,
+    );
+    return resp.ok;
+  }, [state.accessToken]);
 
-      const response = await fetch('http://localhost:8000/api/auth/2fa/enable/', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ secret })
-      });
+  const unlinkGitHub = useCallback(async (): Promise<boolean> => {
+    if (!state.accessToken) return false;
+    const resp = await apiFetch(
+      `${AUTH_BASE}/unlink/github/`,
+      { method: 'DELETE' },
+      state.accessToken,
+    );
+    return resp.ok;
+  }, [state.accessToken]);
 
-      return response.ok;
-    } catch (error) {
-      console.error('2FA enable error:', error);
-      return false;
-    }
-  };
+  const getSessions = useCallback(async (): Promise<Session[]> => {
+    if (!state.accessToken) return [];
+    const resp = await apiFetch(
+      `${AUTH_BASE}/sessions/list/`,
+      {},
+      state.accessToken,
+    );
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return data.sessions || [];
+  }, [state.accessToken]);
 
-  const disable2FA = async (password: string): Promise<boolean> => {
-    try {
-      if (!authState.token) return false;
+  const revokeSession = useCallback(async (sessionId: string): Promise<boolean> => {
+    if (!state.accessToken) return false;
+    const resp = await apiFetch(
+      `${AUTH_BASE}/sessions/${sessionId}/revoke/`,
+      { method: 'DELETE' },
+      state.accessToken,
+    );
+    return resp.ok;
+  }, [state.accessToken]);
 
-      const response = await fetch('http://localhost:8000/api/auth/2fa/disable/', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ password })
-      });
+  const hasPermission = useCallback((permission: string): boolean => {
+    if (!state.user) return false;
+    if (state.user.role === 'admin') return true;
+    const rolePerms: Record<string, string[]> = {
+      user: ['view_own', 'create_own', 'edit_own', 'delete_own'],
+      viewer: ['view_own', 'view_shared'],
+    };
+    return (rolePerms[state.user.role] || []).includes(permission);
+  }, [state.user]);
 
-      return response.ok;
-    } catch (error) {
-      console.error('2FA disable error:', error);
-      return false;
-    }
-  };
+  const hasRole = useCallback((role: string): boolean => {
+    return state.user?.role === role;
+  }, [state.user]);
 
-  const verify2FA = async (token: string): Promise<boolean> => {
-    try {
-      if (!authState.token) return false;
-
-      const response = await fetch('http://localhost:8000/api/auth/2fa/verify/', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token })
-      });
-
-      return response.ok;
-    } catch (error) {
-      console.error('2FA verification error:', error);
-      return false;
-    }
-  };
-
-  const hasPermission = (permission: string): boolean => {
-    return authState.permissions.includes(permission) || authState.user?.role === 'admin';
-  };
-
-  const hasRole = (role: string): boolean => {
-    return authState.user?.role === role;
-  };
-
-  const contextValue: AuthContextType = {
-    ...authState,
+  const value: AuthContextType = {
+    ...state,
     login,
-    logout,
+    loginWithGoogle,
+    loginWithGitHub,
+    loginWithFirebase,
     register,
+    logout,
+    logoutAll,
+    refreshTokens,
     updateProfile,
     changePassword,
     resetPassword,
-    refreshToken,
+    linkGoogle,
+    linkGitHub,
+    unlinkGoogle,
+    unlinkGitHub,
+    getSessions,
+    revokeSession,
     hasPermission,
     hasRole,
-    enable2FA,
-    disable2FA,
-    verify2FA
   };
 
-  useEffect(() => {
-    checkAuthStatus();
-  }, [checkAuthStatus]);
-
-  return (
-    <AuthContext.Provider value={contextValue}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  return ctx;
 };
 
 export default AuthProvider;

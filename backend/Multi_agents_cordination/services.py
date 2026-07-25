@@ -55,14 +55,34 @@ class CoordinationService:
 
         # Create an audit session record
         coord_session = self._create_coord_session(session, strategy, task, context)
+        return self._execute(coord_session, strategy, agents, task, context, start, chat_session=session)
 
+    def execute_on_coordination_session(
+        self,
+        coord_session,      # Multi_agents_cordination.AgentCoordinationSession
+        strategy: str,
+        agents: List,
+        task: str,
+        context: Optional[Dict] = None,
+    ) -> Dict[str, Any]:
+        """Run a strategy on an existing AgentCoordinationSession (HTTP API path)."""
+        context = {**(coord_session.context or {}), **(context or {})}
+        start = time.monotonic()
+        if strategy:
+            coord_session.strategy = strategy
+            coord_session.save(update_fields=['strategy'])
+        return self._execute(coord_session, strategy or coord_session.strategy, agents, task, context, start)
+
+    def _execute(self, coord_session, strategy, agents, task, context, start, chat_session=None):
         try:
             if strategy == 'sequential':
                 results, final_answer = self._run_sequential(coord_session, agents, task, context)
             elif strategy == 'parallel':
                 results, final_answer = self._run_parallel(coord_session, agents, task, context)
             elif strategy == 'hierarchical':
-                results, final_answer = self._run_hierarchical(coord_session, agents, task, context, session)
+                results, final_answer = self._run_hierarchical(
+                    coord_session, agents, task, context, chat_session
+                )
             elif strategy == 'collaborative':
                 results, final_answer = self._run_collaborative(coord_session, agents, task, context)
             elif strategy == 'competitive':
@@ -70,7 +90,6 @@ class CoordinationService:
             else:
                 raise ValueError(f"Unknown strategy: {strategy}")
 
-            # Mark session complete
             self._close_coord_session(coord_session, success=True)
 
         except Exception as e:
@@ -83,6 +102,18 @@ class CoordinationService:
         self._record_metric(coord_session, 'duration_ms', float(duration_ms))
         self._record_metric(coord_session, 'agents_count', float(len(agents)))
 
+        # Persist final answer into session context for the UI
+        try:
+            coord_session.context = {
+                **(coord_session.context or {}),
+                'task': task[:500],
+                'final_answer': final_answer[:5000] if isinstance(final_answer, str) else str(final_answer)[:5000],
+                'results_keys': list(results.keys()) if isinstance(results, dict) else [],
+            }
+            coord_session.save(update_fields=['context', 'updated_at'])
+        except Exception:
+            pass
+
         return {
             'strategy': strategy,
             'task': task[:200],
@@ -91,6 +122,7 @@ class CoordinationService:
             'final_answer': final_answer,
             'coordination_session_id': str(coord_session.id),
             'duration_ms': duration_ms,
+            'status': 'completed' if 'failed' not in str(final_answer).lower()[:40] else 'failed',
         }
 
     # ─────────────────────────────────────────────────────────────────────────

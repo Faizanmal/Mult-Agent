@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -56,105 +58,18 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '@/lib/utils';
-
-// Available agents for chat
-const availableAgents = [
-  { id: '1', name: 'General Assistant', type: 'assistant', status: 'online', avatar: '🤖' },
-  { id: '2', name: 'Code Helper', type: 'coding', status: 'online', avatar: '💻' },
-  { id: '3', name: 'Data Analyst', type: 'analytics', status: 'online', avatar: '📊' },
-  { id: '4', name: 'Research Agent', type: 'research', status: 'busy', avatar: '🔬' },
-  { id: '5', name: 'Creative Writer', type: 'creative', status: 'offline', avatar: '✍️' },
-];
-
-// Sample conversations
-const conversations = [
-  { id: '1', title: 'API Integration Help', agent: 'Code Helper', lastMessage: 'Here\'s the code example...', time: '2 min ago', unread: 2, pinned: true },
-  { id: '2', title: 'Data Analysis Request', agent: 'Data Analyst', lastMessage: 'The analysis shows...', time: '1 hour ago', unread: 0, pinned: false },
-  { id: '3', title: 'Project Planning', agent: 'General Assistant', lastMessage: 'Let me help you plan...', time: '3 hours ago', unread: 0, pinned: false },
-  { id: '4', title: 'Research Task', agent: 'Research Agent', lastMessage: 'I found these sources...', time: 'Yesterday', unread: 0, pinned: false },
-];
-
-// Sample messages
-const initialMessages = [
-  {
-    id: '1',
-    role: 'assistant',
-    content: 'Hello! I\'m your AI assistant. How can I help you today?',
-    timestamp: '10:00 AM',
-    agent: 'General Assistant',
-  },
-  {
-    id: '2',
-    role: 'user',
-    content: 'Can you help me understand how to implement a REST API with authentication?',
-    timestamp: '10:01 AM',
-  },
-  {
-    id: '3',
-    role: 'assistant',
-    content: `Of course! I'll help you understand REST API implementation with authentication. Here's a comprehensive overview:
-
-## REST API with Authentication
-
-### 1. Choose an Authentication Method
-
-**JWT (JSON Web Tokens)** - Most popular for modern APIs:
-- Stateless authentication
-- Contains encoded user data
-- Self-contained tokens
-
-**OAuth 2.0** - For third-party access:
-- Industry standard for authorization
-- Supports multiple grant types
-- Great for social login
-
-### 2. Basic Implementation
-
-\`\`\`javascript
-// JWT Authentication Example
-const jwt = require('jsonwebtoken');
-
-// Generate token
-const token = jwt.sign(
-  { userId: user.id },
-  process.env.JWT_SECRET,
-  { expiresIn: '24h' }
-);
-
-// Verify middleware
-const authMiddleware = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    res.status(403).json({ error: 'Invalid token' });
-  }
-};
-\`\`\`
-
-Would you like me to explain any specific part in more detail?`,
-    timestamp: '10:02 AM',
-    agent: 'Code Helper',
-  },
-  {
-    id: '4',
-    role: 'user',
-    content: 'That\'s helpful! Can you show me how to handle refresh tokens?',
-    timestamp: '10:05 AM',
-  },
-];
+import { getSessions, getMessages, sendMessage, getAgents, createSession, addAgentToSession } from '@/lib/api';
+import { axiosErrorDetail, errorMessage as getErrorMessage } from '@/types/api';
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState(initialMessages);
+  const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState(availableAgents[0]);
+  const [apiAgents, setApiAgents] = useState<any[]>([]);
+  const [apiConversations, setApiConversations] = useState<any[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<any>(null);
+  const [selectedConversation, setSelectedConversation] = useState<any>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [selectedConversation, setSelectedConversation] = useState(conversations[0]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -165,8 +80,93 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = () => {
+  // Initial load
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [agentsRes, sessionsRes] = await Promise.all([
+          getAgents(),
+          getSessions()
+        ]);
+        
+        const agents = (agentsRes as any).results || [];
+        const sessions = ((sessionsRes as any).results || []).map((s: any) => ({
+          ...s,
+          title: s.name || 'Conversation',
+          agent: s.agents && s.agents.length > 0 ? s.agents[0].name : 'Orchestrator',
+          agentId: s.agents && s.agents.length > 0 ? s.agents[0].id : null,
+          lastMessage: s.status || 'Active',
+          time: new Date(s.created_at).toLocaleDateString(),
+          unread: 0,
+          pinned: false
+        }));
+        
+        setApiAgents(agents);
+        setApiConversations(sessions);
+        
+        if (agents.length > 0) setSelectedAgent(agents[0]);
+        if (sessions.length > 0) setSelectedConversation(sessions[0]);
+      } catch (err) {
+        console.error('Failed to load chat data:', err);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Load messages when conversation changes
+  useEffect(() => {
+    const loadConversationMessages = async () => {
+      if (!selectedConversation?.id) return;
+      try {
+        const msgsRes = await getMessages(selectedConversation.id);
+        const msgs = (msgsRes as any).results || [];
+        setMessages(msgs.map((m: any) => ({
+          id: m.id,
+          role: m.sender_name ? 'user' : 'assistant',
+          content: m.content || m.metadata?.content || 'No content',
+          timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          agent: m.sender_name ? undefined : (selectedAgent?.name || 'Agent')
+        })));
+      } catch (err) {
+        console.error('Failed to load messages:', err);
+      }
+    };
+    loadConversationMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when conversation changes
+  }, [selectedConversation?.id]);
+
+  const handleSend = async () => {
     if (!input.trim()) return;
+    
+    let activeSession = selectedConversation;
+    if (!activeSession) {
+      try {
+        activeSession = await createSession({ name: `Chat with ${selectedAgent?.name || 'Agent'}` });
+        
+        // If an agent is selected, add it to the session in the backend
+        if (selectedAgent && selectedAgent.id) {
+          try {
+            await addAgentToSession(activeSession.id, selectedAgent.id);
+          } catch (e) { console.error('Failed to link agent:', e); }
+        }
+
+        activeSession = {
+          ...activeSession,
+          title: activeSession.name || 'New Conversation',
+          agent: selectedAgent?.name || 'Orchestrator',
+          agentId: selectedAgent?.id || null,
+          lastMessage: 'Started',
+          time: new Date().toLocaleTimeString(),
+          unread: 0,
+          pinned: false
+        };
+        setApiConversations(prev => [activeSession, ...prev]);
+        setSelectedConversation(activeSession);
+      } catch (err) {
+        console.error('Failed to create session:', err);
+        return;
+      }
+    }
 
     const userMessage = {
       id: Date.now().toString(),
@@ -175,22 +175,53 @@ export default function ChatPage() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    setMessages([...messages, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
+    const messageContent = input;
     setInput('');
     setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      // Link selected agent to session so the backend routes to the right specialist
+      if (selectedAgent?.id) {
+        try {
+          await addAgentToSession(activeSession.id, selectedAgent.id);
+        } catch {
+          // Agent may already be linked to this session
+        }
+      }
+
+      const responseMsg = await sendMessage(activeSession.id, {
+        content: messageContent,
+        message_type: 'text',
+        metadata: { agent_id: selectedAgent?.id },
+      });
+      
       const aiMessage = {
+        id: responseMsg.id || (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: responseMsg.content || responseMsg.metadata?.content || responseMsg.metadata?.response || 'Done.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        agent: selectedAgent?.name || 'Agent',
+      };
+      
+      setMessages(prev => [...prev, aiMessage]);
+      setApiConversations(prev => prev.map(c => c.id === activeSession.id ? { ...c, lastMessage: responseMsg.content } : c));
+    } catch (err: unknown) {
+      console.error('Failed to send message:', err);
+      const detail = axiosErrorDetail(err) || getErrorMessage(err);
+      const assistantError = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'This is a simulated response. In a real application, this would be connected to your AI backend for intelligent responses.',
+        content: detail
+          ? `Sorry, I encountered an error: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`
+          : 'Sorry, I encountered an error processing your request. The request may have timed out — try again.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        agent: selectedAgent.name,
+        agent: 'System',
       };
-      setMessages(prev => [...prev, aiMessage]);
+      setMessages(prev => [...prev, assistantError]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   const copyToClipboard = (id: string, text: string) => {
@@ -214,7 +245,10 @@ export default function ChatPage() {
                 <MessageSquare className="h-5 w-5" />
                 Chats
               </CardTitle>
-              <Button size="icon" variant="ghost">
+              <Button size="icon" variant="ghost" onClick={() => {
+                setSelectedConversation(null);
+                setMessages([]);
+              }}>
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
@@ -226,7 +260,9 @@ export default function ChatPage() {
           <CardContent className="flex-1 p-0 overflow-hidden">
             <ScrollArea className="h-full">
               <div className="p-2 space-y-1">
-                {conversations.map((conv) => (
+                {apiConversations
+                  .filter(conv => !selectedAgent || conv.agentId === selectedAgent.id || conv.agent === 'Orchestrator')
+                  .map((conv) => (
                   <motion.button
                     key={conv.id}
                     onClick={() => setSelectedConversation(conv)}
@@ -241,7 +277,7 @@ export default function ChatPage() {
                   >
                     <Avatar className="h-10 w-10">
                       <AvatarFallback className="text-lg">
-                        {availableAgents.find(a => a.name === conv.agent)?.avatar || '🤖'}
+                        {apiAgents.find(a => a.name === conv.agent)?.avatar || '🤖'}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
@@ -271,39 +307,46 @@ export default function ChatPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Avatar className="h-10 w-10">
-                  <AvatarFallback className="text-lg">{selectedAgent.avatar}</AvatarFallback>
+                  <AvatarFallback className="text-lg">{selectedAgent?.avatar || 'A'}</AvatarFallback>
                 </Avatar>
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    {selectedAgent.name}
+                    {selectedAgent?.name || 'Loading...'}
                     <Badge
                       variant="outline"
                       className={cn(
                         "text-xs",
-                        selectedAgent.status === 'online' && "text-green-500 border-green-500/30",
-                        selectedAgent.status === 'busy' && "text-yellow-500 border-yellow-500/30",
-                        selectedAgent.status === 'offline' && "text-muted-foreground"
+                        selectedAgent?.status === 'online' && "text-green-500 border-green-500/30",
+                        selectedAgent?.status === 'busy' && "text-yellow-500 border-yellow-500/30",
+                        selectedAgent?.status === 'offline' && "text-muted-foreground"
                       )}
                     >
-                      {selectedAgent.status}
+                      {selectedAgent?.status || 'offline'}
                     </Badge>
                   </CardTitle>
-                  <CardDescription>{selectedAgent.type} agent</CardDescription>
+                  <CardDescription>{selectedAgent?.type || 'Unknown'} agent</CardDescription>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <Select
-                  value={selectedAgent.id}
-                  onValueChange={(id) => setSelectedAgent(availableAgents.find(a => a.id === id) || selectedAgent)}
+                  value={selectedAgent?.id || ''}
+                  onValueChange={(id) => {
+                    const agent = apiAgents.find(a => a.id === id);
+                    if (agent) {
+                      setSelectedAgent(agent);
+                      setSelectedConversation(null);
+                      setMessages([]);
+                    }
+                  }}
                 >
                   <SelectTrigger className="w-40">
                     <SelectValue placeholder="Switch agent" />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableAgents.map(agent => (
+                    {apiAgents.map(agent => (
                       <SelectItem key={agent.id} value={agent.id}>
                         <div className="flex items-center gap-2">
-                          <span>{agent.avatar}</span>
+                          <span>{agent.avatar || '🤖'}</span>
                           <span>{agent.name}</span>
                         </div>
                       </SelectItem>
@@ -375,24 +418,20 @@ export default function ChatPage() {
                           "rounded-2xl px-4 py-2.5",
                           message.role === 'assistant'
                             ? "bg-muted"
-                            : "bg-primary text-primary-foreground"
+                            : "bg-gradient-to-br from-indigo-600 to-purple-600 text-white"
                         )}>
-                          <div className={cn(
-                            "prose prose-sm dark:prose-invert max-w-none",
-                            message.role === 'user' && "prose-invert"
-                          )}>
-                            {message.role === 'assistant' ? (
+                          {message.role === 'assistant' ? (
+                            <div className="prose prose-sm dark:prose-invert max-w-none">
                               <ReactMarkdown 
                                 remarkPlugins={[remarkGfm]}
                                 components={{
-                                  code: (props) => {
-                                    const { className, children, node: _node, ref: _ref, ...rest } = props;
+                                  code: ({ className, children, ...rest }) => {
                                     const match = /language-(\w+)/.exec(className || '');
                                     const isInline = !match && !String(children).includes('\n');
                                     return !isInline && match ? (
                                       <SyntaxHighlighter
-                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                        style={oneDark as any}
+                                        // @ts-expect-error prism theme export type mismatch
+                                        style={oneDark}
                                         language={match[1]}
                                         PreTag="div"
                                         className="rounded-md text-sm"
@@ -420,10 +459,10 @@ export default function ChatPage() {
                               >
                                 {message.content}
                               </ReactMarkdown>
-                            ) : (
-                              <p className="whitespace-pre-wrap">{message.content}</p>
-                            )}
-                          </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                          )}
                         </div>
                         <div className={cn(
                           "flex items-center gap-2 px-2 opacity-0 group-hover:opacity-100 transition-opacity",

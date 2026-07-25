@@ -19,6 +19,7 @@ import {
   User,
   Building2,
   Check,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +33,8 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
 
 const registerSchema = z.object({
   firstName: z.string().min(2, 'First name must be at least 2 characters'),
@@ -80,9 +83,13 @@ const plans = [
 ];
 
 export default function RegisterPage() {
+  const router = useRouter();
+  const { register, loginWithGoogle, loginWithGitHub } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState<'google' | 'github' | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(1);
 
   const form = useForm<RegisterFormValues>({
@@ -100,13 +107,19 @@ export default function RegisterPage() {
   });
 
   const onSubmit = async (data: RegisterFormValues) => {
+    setError(null);
     setIsLoading(true);
     try {
-      console.log('Register data:', data);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      window.location.href = '/dashboard';
-    } catch (error) {
-      console.error('Registration error:', error);
+      await register({
+        email: data.email,
+        password: data.password,
+        first_name: data.firstName,
+        last_name: data.lastName,
+        username: data.email.split('@')[0],
+      });
+      router.push('/dashboard');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -178,16 +191,53 @@ export default function RegisterPage() {
             ))}
           </div>
 
+          {error && (
+            <div className="mb-6 flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
           {/* Social Login */}
           {step === 1 && (
             <>
               <div className="grid grid-cols-2 gap-4 mb-6">
-                <Button variant="outline" className="h-12 rounded-xl">
-                  <Globe className="h-5 w-5 mr-2" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 rounded-xl"
+                  disabled={!!oauthLoading || isLoading}
+                  onClick={async () => {
+                    setError(null);
+                    setOauthLoading('google');
+                    try {
+                      await loginWithGoogle();
+                    } catch (err: unknown) {
+                      setError(err instanceof Error ? err.message : 'Google sign-up failed');
+                      setOauthLoading(null);
+                    }
+                  }}
+                >
+                  {oauthLoading === 'google' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Globe className="h-5 w-5 mr-2" />}
                   Google
                 </Button>
-                <Button variant="outline" className="h-12 rounded-xl">
-                  <FaGithub className="h-5 w-5 mr-2" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 rounded-xl"
+                  disabled={!!oauthLoading || isLoading}
+                  onClick={async () => {
+                    setError(null);
+                    setOauthLoading('github');
+                    try {
+                      await loginWithGitHub();
+                    } catch (err: unknown) {
+                      setError(err instanceof Error ? err.message : 'GitHub sign-up failed');
+                      setOauthLoading(null);
+                    }
+                  }}
+                >
+                  {oauthLoading === 'github' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FaGithub className="h-5 w-5 mr-2" />}
                   GitHub
                 </Button>
               </div>

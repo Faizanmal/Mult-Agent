@@ -378,6 +378,18 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Message.objects.all()
         return Message.objects.filter(session__user=self.request.user)
     
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        agent_response = getattr(self, 'agent_response', None)
+        if agent_response:
+            response_serializer = self.get_serializer(agent_response)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+            
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
     def perform_create(self, serializer):
         session_id = self.request.data.get('session_id')
         
@@ -399,15 +411,39 @@ class MessageViewSet(viewsets.ModelViewSet):
                 )
                 message = serializer.save(session=session, sender=default_user)
                 
+                # Ensure the selected agent is linked to this session
+                agent_id = self.request.data.get('agent_id') or (self.request.data.get('metadata') or {}).get('agent_id')
+                if agent_id:
+                    try:
+                        agent = Agent.objects.get(id=agent_id)
+                        session.agents.add(agent)
+                    except Agent.DoesNotExist:
+                        pass
+
+                # Attach integration sub-agents for connected services
+                from api_integrations.models import APIIntegration
+                from api_integrations.services import ensure_integration_agents
+                for integ in APIIntegration.objects.filter(status='active')[:10]:
+                    for sub_agent in ensure_integration_agents(integ):
+                        session.agents.add(sub_agent)
+                
                 # Process message with agent response in debug mode
-                self.process_with_agent(message)
+                self.agent_response = self.process_with_agent(message)
                 
             else:
                 session = Session.objects.get(id=session_id, user=self.request.user)
                 message = serializer.save(session=session, sender=self.request.user)
                 
+                agent_id = self.request.data.get('agent_id') or (self.request.data.get('metadata') or {}).get('agent_id')
+                if agent_id:
+                    try:
+                        agent = Agent.objects.get(id=agent_id, owner=self.request.user)
+                        session.agents.add(agent)
+                    except Agent.DoesNotExist:
+                        pass
+                
                 # Process message with agent response
-                self.process_with_agent(message)
+                self.agent_response = self.process_with_agent(message)
                 
         except Session.DoesNotExist:
             raise ValidationError({'session_id': 'Invalid session ID.'})
@@ -415,34 +451,46 @@ class MessageViewSet(viewsets.ModelViewSet):
     def process_with_agent(self, user_message):
         """Process user message and generate agent response"""
         try:
-            print(f"🚀 Processing message: {user_message.content}")
+            print(f"🚀 Processing message with real AgentCoordinator: {user_message.content}")
             
-            # For now, create agent response without sender_agent field
-            # to avoid Agent instance complications
-            response_content = f"Hello! I received your message: '{user_message.content}'. This is an HTTP API response from the Django backend. Your message was processed successfully!"
+            from .services.agent_coordinator import AgentCoordinator
+            coordinator = AgentCoordinator(user_message.session)
             
-            # Create agent response message (without sender_agent for now)
+            # This calls GroqService/LLM to process the message and assigns tasks
+            result = coordinator.process_message(user_message)
+            
+            response_data = result.get('response', {})
+            response_content = response_data.get('content') or 'Error: No content generated'
+            
+            # Create agent response message in DB
             agent_response = Message.objects.create(
                 session=user_message.session,
-                sender=user_message.sender,
+                sender=None,  # Leave sender None for agent responses
                 content=response_content,
                 message_type='text',
                 metadata={
-                    'response_to': str(user_message.id),  # Convert UUID to string
+                    'response_to': str(user_message.id),
                     'via': 'http_api',
                     'is_agent_response': True,
-                    'agent_name': 'HTTP API Agent'
+                    'agent_results': response_data.get('agent_results', {})
                 }
             )
             
-            print(f"✅ Created agent response: ID={agent_response.id}, Content={response_content[:50]}...")
+            print(f"✅ Created real agent response: ID={agent_response.id}")
             return agent_response
             
         except Exception as e:
             print(f"❌ Failed to create agent response: {e}")
             import traceback
             traceback.print_exc()
-            return None
+            
+            # Fallback message
+            return Message.objects.create(
+                session=user_message.session,
+                sender=None,
+                content=f"Sorry, I encountered an internal error: {str(e)}",
+                message_type='text'
+            )
     
     @action(detail=False, methods=['post'])
     def process_multimodal(self, request):

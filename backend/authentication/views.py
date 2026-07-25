@@ -5,6 +5,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
+from datetime import timedelta
 from django.core.mail import send_mail
 from django.conf import settings
 import secrets
@@ -133,7 +134,7 @@ def forgot_password_view(request):
                 defaults={
                     'token': reset_token,
                     'ip_address': request.META.get('REMOTE_ADDR', ''),
-                    'expires_at': timezone.now() + timezone.timedelta(hours=1),
+                    'expires_at': timezone.now() + timedelta(hours=1),
                     'used': False
                 }
             )

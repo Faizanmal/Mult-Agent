@@ -30,8 +30,13 @@ import {
   Unlink,
   Clock,
   Activity,
+  Trash2,
 } from 'lucide-react';
 import apiClient from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
+import type { LucideIcon } from 'lucide-react';
+import type { ActivityLogRecord, IntegrationRecord, IntegrationTemplate } from '@/types/api';
+import { axiosErrorDetail, errorMessage, integrationListFromResponse, paginatedItems } from '@/types/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -66,6 +71,22 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
+type IntegrationUI = IntegrationRecord & {
+  icon: LucideIcon;
+  category: string;
+  status: string;
+  lastSync: string;
+};
+
+type ActivityLogUI = {
+  integration: string;
+  event: string;
+  status: string;
+  time: string;
+  details: string;
+  integrationName: string;
+};
+
 // Integration categories
 const categories = [
   { id: 'all', label: 'All', icon: Globe },
@@ -77,7 +98,7 @@ const categories = [
 ];
 
 // Icons mapping
-const iconMap: Record<string, any> = {
+const iconMap: Record<string, LucideIcon> = {
   'Globe': Globe,
   'Bot': Bot,
   'MessageSquare': MessageSquare,
@@ -95,60 +116,190 @@ const iconMap: Record<string, any> = {
 // Predefined integration templates
 const predefinedTemplates = [
   { id: 'openai', name: 'OpenAI', icon: Bot, type: 'ai' },
+  { id: 'anthropic', name: 'Anthropic Claude', icon: Bot, type: 'ai' },
   { id: 'slack', name: 'Slack', icon: MessageSquare, type: 'communication' },
   { id: 'gmail', name: 'Gmail', icon: Mail, type: 'communication' },
-  { id: 'github', name: 'GitHub', icon: GitBranch, type: 'devops' },
-  { id: 'aws', name: 'AWS S3', icon: Cloud, type: 'storage' },
-  { id: 'google_analytics', name: 'Google Analytics', icon: BarChart3, type: 'analytics' },
-  { id: 'anthropic', name: 'Anthropic Claude', icon: Bot, type: 'ai' },
+  { id: 'telegram', name: 'Telegram', icon: MessageSquare, type: 'communication' },
+  { id: 'discord', name: 'Discord', icon: MessageSquare, type: 'communication' },
+  { id: 'twilio', name: 'Twilio', icon: MessageSquare, type: 'communication' },
   { id: 'calendar', name: 'Google Calendar', icon: Calendar, type: 'communication' },
+  { id: 'github', name: 'GitHub', icon: GitBranch, type: 'devops' },
+  { id: 'jira', name: 'Jira', icon: GitBranch, type: 'devops' },
+  { id: 'linear', name: 'Linear', icon: GitBranch, type: 'devops' },
+  { id: 'trello', name: 'Trello', icon: GitBranch, type: 'devops' },
+  { id: 'aws', name: 'AWS S3', icon: Cloud, type: 'storage' },
+  { id: 'airtable', name: 'Airtable', icon: Database, type: 'storage' },
+  { id: 'notion', name: 'Notion', icon: Globe, type: 'ai' },
+  { id: 'hubspot', name: 'HubSpot', icon: BarChart3, type: 'analytics' },
+  { id: 'webhook', name: 'Webhook', icon: Zap, type: 'devops' },
 ];
 
-// API templates
-const apiTemplates = [
-  { id: '1', name: 'REST API', description: 'Generic REST API connector', icon: Globe },
-  { id: '2', name: 'GraphQL', description: 'GraphQL endpoint connector', icon: Zap },
-  { id: '3', name: 'Webhook', description: 'Incoming webhook receiver', icon: Link2 },
-  { id: '4', name: 'OAuth2', description: 'OAuth2 authenticated API', icon: Shield },
-];
+const INTEGRATION_DEFAULTS: Record<string, {
+  endpoint: string;
+  authLabel: string;
+  placeholder: string;
+  hint?: string;
+  extraFields?: { key: string; label: string; placeholder: string }[];
+}> = {
+  gmail: {
+    endpoint: 'https://gmail.googleapis.com/gmail/v1',
+    authLabel: 'OAuth Credentials JSON',
+    placeholder: '{"access_token": "...", "scope": "https://www.googleapis.com/auth/gmail.readonly"}',
+    hint: 'Paste OAuth JSON from Google OAuth Playground. access_token works ~1 hour; add refresh_token for permanent access.',
+  },
+  slack: {
+    endpoint: 'https://slack.com/api',
+    authLabel: 'Bot Token',
+    placeholder: 'xoxb-your-slack-bot-token',
+    hint: 'Create a Slack app with channels:read, chat:write scopes. Use the Bot User OAuth Token (xoxb-...).',
+  },
+  github: {
+    endpoint: 'https://api.github.com',
+    authLabel: 'Personal Access Token',
+    placeholder: 'ghp_your_github_personal_access_token',
+    hint: 'GitHub → Settings → Developer settings → Personal access tokens. Needs repo scope for issues/repos.',
+  },
+  openai: {
+    endpoint: 'https://api.openai.com/v1',
+    authLabel: 'API Key',
+    placeholder: 'sk-...',
+  },
+  anthropic: {
+    endpoint: 'https://api.anthropic.com',
+    authLabel: 'API Key',
+    placeholder: 'sk-ant-...',
+  },
+  notion: {
+    endpoint: 'https://api.notion.com/v1',
+    authLabel: 'Integration Token',
+    placeholder: 'secret_...',
+    hint: 'Create an internal integration at notion.so/my-integrations and copy the secret token.',
+  },
+  jira: {
+    endpoint: 'https://your-domain.atlassian.net',
+    authLabel: 'API Token',
+    placeholder: 'your-atlassian-api-token',
+    hint: 'Atlassian account → Security → API tokens. Use your Atlassian email + token.',
+    extraFields: [{ key: 'email', label: 'Atlassian Email', placeholder: 'you@company.com' }],
+  },
+  discord: {
+    endpoint: 'https://discord.com/api/v10',
+    authLabel: 'Bot Token',
+    placeholder: 'your-discord-bot-token',
+    hint: 'Discord Developer Portal → Bot → Token. Enable Message Content Intent if reading messages.',
+    extraFields: [{ key: 'guild_id', label: 'Server (Guild) ID', placeholder: '123456789012345678' }],
+  },
+  aws: {
+    endpoint: 'https://s3.amazonaws.com',
+    authLabel: 'AWS Access Key ID',
+    placeholder: 'AKIA...',
+    hint: 'IAM user with S3 read permissions. Secret key and region below.',
+    extraFields: [
+      { key: 'secret_access_key', label: 'Secret Access Key', placeholder: 'wJalr...' },
+      { key: 'region', label: 'Region', placeholder: 'us-east-1' },
+    ],
+  },
+  telegram: {
+    endpoint: 'https://api.telegram.org',
+    authLabel: 'Bot Token',
+    placeholder: '123456:ABC-DEF...',
+    hint: 'Create a bot with @BotFather and paste the token here.',
+  },
+  trello: {
+    endpoint: 'https://api.trello.com/1',
+    authLabel: 'API Key',
+    placeholder: 'your-trello-api-key',
+    hint: 'Get key + token from trello.com/app-key. Token is required below.',
+    extraFields: [{ key: 'token', label: 'Trello Token', placeholder: 'your-trello-token' }],
+  },
+  linear: {
+    endpoint: 'https://api.linear.app/graphql',
+    authLabel: 'API Key',
+    placeholder: 'lin_api_...',
+    hint: 'Linear → Settings → API → Personal API keys.',
+  },
+  hubspot: {
+    endpoint: 'https://api.hubapi.com',
+    authLabel: 'Private App Token',
+    placeholder: 'pat-na1-...',
+    hint: 'HubSpot → Settings → Integrations → Private Apps. Needs CRM contacts scopes.',
+  },
+  twilio: {
+    endpoint: 'https://api.twilio.com',
+    authLabel: 'Auth Token',
+    placeholder: 'your-auth-token',
+    hint: 'Twilio Console → Account SID + Auth Token. Optional from_number for SMS.',
+    extraFields: [
+      { key: 'account_sid', label: 'Account SID', placeholder: 'ACxxxxxxxx' },
+      { key: 'from_number', label: 'From Number (E.164)', placeholder: '+15551234567' },
+    ],
+  },
+  airtable: {
+    endpoint: 'https://api.airtable.com/v0',
+    authLabel: 'Personal Access Token',
+    placeholder: 'pat...',
+    hint: 'Airtable → Developer hub → Personal access tokens. Optional default base ID.',
+    extraFields: [{ key: 'base_id', label: 'Default Base ID', placeholder: 'appXXXXXXXX' }],
+  },
+  calendar: {
+    endpoint: 'https://www.googleapis.com/calendar/v3',
+    authLabel: 'OAuth Credentials JSON',
+    placeholder: '{"access_token": "...", "scope": "https://www.googleapis.com/auth/calendar"}',
+    hint: 'Google OAuth with Calendar scope. Paste access_token JSON (add refresh_token for lasting access).',
+  },
+  webhook: {
+    endpoint: 'https://example.com/webhook',
+    authLabel: 'Optional Bearer Token',
+    placeholder: 'leave blank if none',
+    hint: 'Set the webhook URL as the endpoint. Token is optional Authorization header.',
+  },
+};
 
 export default function IntegrationsPage() {
-  const [integrations, setIntegrations] = React.useState<any[]>([]);
-  const [apiTemplates, setApiTemplates] = React.useState<any[]>([]);
+  const [integrations, setIntegrations] = React.useState<IntegrationUI[]>([]);
+  const [apiTemplates, setApiTemplates] = React.useState<IntegrationTemplate[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [showConnectDialog, setShowConnectDialog] = useState(false);
-  const [selectedIntegration, setSelectedIntegration] = useState<any>(null);
+  const [selectedIntegration, setSelectedIntegration] = useState<IntegrationUI | null>(null);
   
   // New Integration Form State
   const [newIntegrationType, setNewIntegrationType] = useState('');
   const [newIntegrationKey, setNewIntegrationKey] = useState('');
   const [newIntegrationName, setNewIntegrationName] = useState('');
+  const [newIntegrationEndpoint, setNewIntegrationEndpoint] = useState('');
+  const [newIntegrationExtra, setNewIntegrationExtra] = useState<Record<string, string>>({});
   const [isCreating, setIsCreating] = useState(false);
   
   const [showApiKey, setShowApiKey] = useState(false);
+  const [activityLogs, setActivityLogs] = React.useState<ActivityLogUI[]>([]);
+  const [testingId, setTestingId] = React.useState<string | null>(null);
 
   const loadIntegrations = async () => {
     setIsLoading(true);
     try {
-      const [integrationsRes, templatesRes] = await Promise.all([
+      const [integrationsRes, templatesRes, activityRes] = await Promise.all([
         apiClient.getAPIIntegrations(),
-        apiClient.client.get('/api-integrations/api/templates/')
+        apiClient.getIntegrationTemplates(),
+        apiClient.getIntegrationActivity().catch(() => ({ results: [] })),
       ]);
       
-      // Map backend integrations
-      const mappedIntegrations = ((integrationsRes as any).results || []).map((item: any) => {
-        // Use description or name to determine icon (since we store the template id in description)
+      const integrationList = integrationListFromResponse(
+        integrationsRes as unknown as Parameters<typeof integrationListFromResponse>[0],
+      );
+      const mappedIntegrations: IntegrationUI[] = integrationList.map((item) => {
         const templateId = item.description || item.name?.toLowerCase() || '';
         let matchedIcon = Globe;
         if (templateId.includes('gmail') || templateId.includes('mail')) matchedIcon = Mail;
         else if (templateId.includes('open') || templateId.includes('anthropic') || templateId.includes('ai')) matchedIcon = Bot;
-        else if (templateId.includes('slack')) matchedIcon = MessageSquare;
-        else if (templateId.includes('github') || templateId.includes('git')) matchedIcon = GitBranch;
-        else if (templateId.includes('aws') || templateId.includes('cloud')) matchedIcon = Cloud;
-        else if (templateId.includes('analytic')) matchedIcon = BarChart3;
+        else if (templateId.includes('telegram') || templateId.includes('slack') || templateId.includes('discord') || templateId.includes('twilio')) matchedIcon = MessageSquare;
+        else if (templateId.includes('github') || templateId.includes('jira') || templateId.includes('linear') || templateId.includes('trello')) matchedIcon = GitBranch;
+        else if (templateId.includes('notion') || templateId.includes('webhook')) matchedIcon = templateId.includes('webhook') ? Zap : Globe;
+        else if (templateId.includes('aws') || templateId.includes('s3') || templateId.includes('cloud')) matchedIcon = Cloud;
+        else if (templateId.includes('airtable')) matchedIcon = Database;
+        else if (templateId.includes('hubspot') || templateId.includes('analytic')) matchedIcon = BarChart3;
         else if (templateId.includes('calendar')) matchedIcon = Calendar;
         
         return {
@@ -161,7 +312,26 @@ export default function IntegrationsPage() {
       });
       setIntegrations(mappedIntegrations);
       
-      setApiTemplates(templatesRes.data?.results || []);
+      const templatesData = templatesRes as unknown as { results?: IntegrationTemplate[]; templates?: IntegrationTemplate[] };
+      const dbTemplates = paginatedItems(templatesData).concat(templatesData.templates ?? []);
+      setApiTemplates(dbTemplates.length > 0 ? dbTemplates : predefinedTemplates.map(t => ({
+        id: t.id,
+        name: t.name,
+        description: `${t.type} integration`,
+        provider: t.id,
+        config_template: { provider_key: t.id, auth_type: t.id === 'gmail' ? 'oauth' : 'api_key' },
+      })));
+      setActivityLogs(((activityRes.results as ActivityLogRecord[]) || []).map((log) => ({
+        integration: log.integration,
+        event: log.request_data?.tool || 'API call',
+        status: log.status === 'success' ? 'success' : 'failed',
+        time: new Date(log.timestamp).toLocaleString(),
+        details: log.error_message || JSON.stringify(log.response_data || {}).slice(0, 80),
+        integrationName:
+          log.integration_name ||
+          mappedIntegrations.find((i) => i.id === log.integration)?.name ||
+          'Integration',
+      })));
     } catch (error) {
       console.error('Failed to load integrations:', error);
     } finally {
@@ -175,16 +345,18 @@ export default function IntegrationsPage() {
 
   const filteredIntegrations = integrations.filter(integration => {
     const matchesSearch = integration.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      integration.description.toLowerCase().includes(searchQuery.toLowerCase());
+      (integration.description || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = category === 'all' || integration.category === category;
     return matchesSearch && matchesCategory;
   });
+
+  const totalApiCalls = integrations.reduce((sum, i) => sum + (i.total_calls || 0), 0);
 
   const stats = [
     { label: 'Total Integrations', value: integrations.length, icon: Plug, color: 'text-primary' },
     { label: 'Connected', value: integrations.filter(i => i.status === 'connected').length, icon: CheckCircle2, color: 'text-green-500' },
     { label: 'Errors', value: integrations.filter(i => i.status === 'error').length, icon: XCircle, color: 'text-red-500' },
-    { label: 'API Calls Today', value: '45.2K', icon: Activity, color: 'text-blue-500' },
+    { label: 'Total API Calls', value: totalApiCalls.toLocaleString(), icon: Activity, color: 'text-blue-500' },
   ];
 
   const getStatusBadge = (status: string) => {
@@ -198,6 +370,55 @@ export default function IntegrationsPage() {
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
+  };
+
+  const handleTestIntegration = async (id: string) => {
+    setTestingId(id);
+    try {
+      const res = await apiClient.testAPIIntegration(id);
+      await loadIntegrations();
+      toast({
+        title: res.success ? 'Connection successful' : 'Test failed',
+        description: res.message || res.error || undefined,
+        variant: res.success ? 'default' : 'destructive',
+      });
+    } catch (error: unknown) {
+      toast({ title: 'Connection test failed', description: errorMessage(error), variant: 'destructive' });
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const handleDeleteIntegration = async (id: string) => {
+    try {
+      await apiClient.deleteAPIIntegration(id);
+      setIntegrations(prev => prev.filter(i => i.id !== id));
+      toast({ title: 'Integration removed' });
+    } catch (error: unknown) {
+      toast({ title: 'Failed to delete integration', description: errorMessage(error), variant: 'destructive' });
+    }
+  };
+
+  const resetConnectForm = () => {
+    setNewIntegrationType('');
+    setNewIntegrationKey('');
+    setNewIntegrationName('');
+    setNewIntegrationEndpoint('');
+    setNewIntegrationExtra({});
+  };
+
+  const canConnect = () => {
+    if (!newIntegrationType) return false;
+    if (newIntegrationType === 'webhook') {
+      return Boolean(newIntegrationEndpoint || INTEGRATION_DEFAULTS.webhook?.endpoint);
+    }
+    if (!newIntegrationKey) return false;
+    if (newIntegrationType === 'jira' && !newIntegrationExtra.email) return false;
+    if (newIntegrationType === 'discord' && !newIntegrationExtra.guild_id) return false;
+    if (newIntegrationType === 'aws' && !newIntegrationExtra.secret_access_key) return false;
+    if (newIntegrationType === 'trello' && !newIntegrationExtra.token) return false;
+    if (newIntegrationType === 'twilio' && !newIntegrationExtra.account_sid) return false;
+    return true;
   };
 
   return (
@@ -219,9 +440,7 @@ export default function IntegrationsPage() {
             </p>
           </div>
           <Button onClick={() => {
-            setNewIntegrationType('');
-            setNewIntegrationKey('');
-            setNewIntegrationName('');
+            resetConnectForm();
             setShowConnectDialog(true);
           }} className="gap-2">
             <Plus className="h-4 w-4" />
@@ -292,6 +511,9 @@ export default function IntegrationsPage() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {isLoading ? (
+                <p className="text-sm text-muted-foreground col-span-full text-center py-12">Loading integrations...</p>
+              ) : (
               <AnimatePresence mode="popLayout">
                 {filteredIntegrations.map((integration, index) => (
                   <motion.div
@@ -333,16 +555,16 @@ export default function IntegrationsPage() {
                                 <Settings className="h-4 w-4 mr-2" />
                                 Configure
                               </DropdownMenuItem>
-                              <DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleTestIntegration(integration.id)} disabled={testingId === integration.id}>
                                 <TestTube className="h-4 w-4 mr-2" />
-                                Test Connection
+                                {testingId === integration.id ? 'Testing...' : 'Test Connection'}
                               </DropdownMenuItem>
-                              <DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => loadIntegrations()}>
                                 <RefreshCw className="h-4 w-4 mr-2" />
-                                Sync Now
+                                Refresh
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem className="text-destructive">
+                              <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteIntegration(integration.id)}>
                                 <Unlink className="h-4 w-4 mr-2" />
                                 Disconnect
                               </DropdownMenuItem>
@@ -413,51 +635,80 @@ export default function IntegrationsPage() {
                       <CardFooter className="p-4 pt-0">
                         <div className="flex w-full gap-2">
                           {integration.status === 'disconnected' ? (
-                            <Button className="w-full" variant="outline" onClick={() => {
-                              setNewIntegrationType(integration.type);
+                            <Button className="flex-1" variant="outline" onClick={() => {
+                              setNewIntegrationType(integration.description || integration.type || '');
                               setShowConnectDialog(true);
                             }}>
                               Connect
                             </Button>
                           ) : integration.status === 'error' ? (
-                            <Button className="w-full" variant="outline" onClick={() => setSelectedIntegration(integration)}>
+                            <Button className="flex-1" variant="outline" onClick={() => setSelectedIntegration(integration)}>
                               Reconnect
                             </Button>
                           ) : (
-                            <Button className="w-full" variant="outline" onClick={() => setSelectedIntegration(integration)}>
+                            <Button className="flex-1" variant="outline" onClick={() => setSelectedIntegration(integration)}>
                               Sync Now
                             </Button>
                           )}
+                          <Button 
+                            variant="outline" 
+                            className="px-3 border-destructive/20 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => handleDeleteIntegration(integration.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </CardFooter>
                     </Card>
                   </motion.div>
                 ))}
               </AnimatePresence>
+              )}
             </div>
           </TabsContent>
 
           {/* API Templates Tab */}
           <TabsContent value="templates" className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {apiTemplates.map((template, index) => (
+              {apiTemplates.map((template, index) => {
+                const providerKey = template.provider || template.config_template?.provider_key || '';
+                const iconKey = typeof template.icon === 'string' ? template.icon : providerKey;
+                const IconComp = (typeof template.icon === 'function' ? template.icon : iconMap[iconKey]) || (
+                  providerKey.includes('gmail') ? Mail :
+                  providerKey.includes('slack') ? MessageSquare :
+                  providerKey.includes('github') ? GitBranch :
+                  providerKey.includes('openai') || providerKey.includes('anthropic') ? Bot :
+                  Globe
+                );
+                return (
                 <motion.div
-                  key={template.id}
+                  key={template.id || index}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.1 }}
                 >
-                  <Card className="hover:shadow-lg transition-all cursor-pointer group hover:border-primary/50">
+                  <Card
+                    className="hover:shadow-lg transition-all cursor-pointer group hover:border-primary/50"
+                    onClick={() => {
+                      setNewIntegrationType(providerKey || template.id);
+                      setShowConnectDialog(true);
+                    }}
+                  >
                     <CardContent className="p-6 text-center">
                       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mx-auto mb-4 transition-transform group-hover:scale-110">
-                        <template.icon className="h-7 w-7 text-primary" />
+                        {typeof IconComp === 'function' ? <IconComp className="h-7 w-7 text-primary" /> : <Globe className="h-7 w-7 text-primary" />}
                       </div>
                       <h3 className="font-semibold mb-1">{template.name}</h3>
                       <p className="text-sm text-muted-foreground">{template.description}</p>
+                      {template.config_template?.tools && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {(template.config_template?.tools ?? []).length} tools • {(template.config_template?.sub_agents ?? []).length || 3} sub-agents
+                        </p>
+                      )}
                     </CardContent>
                   </Card>
                 </motion.div>
-              ))}
+              );})}
             </div>
           </TabsContent>
 
@@ -470,13 +721,11 @@ export default function IntegrationsPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    { integration: 'OpenAI', event: 'API call', status: 'success', time: '2 min ago', details: 'gpt-4 completion' },
-                    { integration: 'Slack', event: 'Message sent', status: 'success', time: '5 min ago', details: '#general channel' },
-                    { integration: 'AWS S3', event: 'File upload', status: 'success', time: '15 min ago', details: 'report.pdf (2.4MB)' },
-                    { integration: 'Gmail', event: 'OAuth refresh', status: 'failed', time: '1 hour ago', details: 'Token expired' },
-                    { integration: 'Google Analytics', event: 'Data sync', status: 'success', time: '2 hours ago', details: '15,234 events' },
-                  ].map((log, index) => (
+                  {activityLogs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">
+                      No API activity yet. Connect an integration and use it from chat.
+                    </p>
+                  ) : activityLogs.map((log, index) => (
                     <div key={index} className="flex items-center gap-4 p-3 rounded-lg bg-muted/50">
                       {log.status === 'success' ? (
                         <CheckCircle2 className="h-5 w-5 text-green-500" />
@@ -484,7 +733,7 @@ export default function IntegrationsPage() {
                         <XCircle className="h-5 w-5 text-red-500" />
                       )}
                       <div className="flex-1">
-                        <p className="font-medium">{log.integration}</p>
+                        <p className="font-medium">{log.integrationName || log.integration}</p>
                         <p className="text-sm text-muted-foreground">
                           {log.event} • {log.details}
                         </p>
@@ -510,7 +759,13 @@ export default function IntegrationsPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Select Integration</Label>
-                <Select value={newIntegrationType} onValueChange={setNewIntegrationType}>
+                <Select value={newIntegrationType} onValueChange={(v) => {
+                  setNewIntegrationType(v);
+                  const defaults = INTEGRATION_DEFAULTS[v];
+                  setNewIntegrationEndpoint(defaults?.endpoint || '');
+                  setNewIntegrationExtra({});
+                  setNewIntegrationKey('');
+                }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose an integration" />
                   </SelectTrigger>
@@ -526,13 +781,43 @@ export default function IntegrationsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {newIntegrationType && INTEGRATION_DEFAULTS[newIntegrationType] && (
+                <div className="space-y-2">
+                  <Label htmlFor="endpoint">Endpoint</Label>
+                  <Input
+                    id="endpoint"
+                    placeholder={INTEGRATION_DEFAULTS[newIntegrationType].endpoint}
+                    value={newIntegrationEndpoint}
+                    onChange={(e) => setNewIntegrationEndpoint(e.target.value)}
+                  />
+                </div>
+              )}
+              {newIntegrationType && INTEGRATION_DEFAULTS[newIntegrationType]?.extraFields?.map((field) => (
+                <div key={field.key} className="space-y-2">
+                  <Label htmlFor={field.key}>{field.label}</Label>
+                  <Input
+                    id={field.key}
+                    type={field.key.includes('secret') || field.key.includes('token') ? (showApiKey ? 'text' : 'password') : 'text'}
+                    placeholder={field.placeholder}
+                    value={newIntegrationExtra[field.key] || ''}
+                    onChange={(e) => setNewIntegrationExtra((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                  />
+                </div>
+              ))}
               <div className="space-y-2">
-                <Label htmlFor="apiKey">API Key</Label>
+                <Label htmlFor="apiKey">
+                  {INTEGRATION_DEFAULTS[newIntegrationType]?.authLabel || (newIntegrationType === 'gmail' ? 'OAuth Credentials JSON' : 'API Key')}
+                </Label>
                 <div className="relative">
                   <Input
                     id="apiKey"
                     type={showApiKey ? 'text' : 'password'}
-                    placeholder="sk-..."
+                    placeholder={
+                      INTEGRATION_DEFAULTS[newIntegrationType]?.placeholder ||
+                      (newIntegrationType === 'gmail'
+                        ? '{"access_token": "...", "scope": "https://www.googleapis.com/auth/gmail.readonly"}'
+                        : 'sk-...')
+                    }
                     value={newIntegrationKey}
                     onChange={(e) => setNewIntegrationKey(e.target.value)}
                   />
@@ -545,6 +830,11 @@ export default function IntegrationsPage() {
                     {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
+                {INTEGRATION_DEFAULTS[newIntegrationType]?.hint && (
+                  <p className="text-xs text-muted-foreground">
+                    {INTEGRATION_DEFAULTS[newIntegrationType].hint}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="name">Connection Name (optional)</Label>
@@ -562,24 +852,70 @@ export default function IntegrationsPage() {
               </Button>
               <Button 
                 className="gap-2" 
-                disabled={!newIntegrationType || !newIntegrationKey || isCreating}
+                disabled={!canConnect() || isCreating}
                 onClick={async () => {
                   setIsCreating(true);
                   try {
                     const template = predefinedTemplates.find(t => t.id === newIntegrationType);
-                    await apiClient.client.post('/api-integrations/api/integrations/', {
+                    const defaults = INTEGRATION_DEFAULTS[newIntegrationType];
+                    let authentication: Record<string, string> = { api_key: newIntegrationKey };
+                    if (newIntegrationType === 'jira') {
+                      authentication = { email: newIntegrationExtra.email || '', api_key: newIntegrationKey };
+                    } else if (newIntegrationType === 'discord') {
+                      authentication = { api_key: newIntegrationKey, guild_id: newIntegrationExtra.guild_id || '' };
+                    } else if (newIntegrationType === 'aws') {
+                      authentication = {
+                        access_key_id: newIntegrationKey,
+                        secret_access_key: newIntegrationExtra.secret_access_key || '',
+                        region: newIntegrationExtra.region || 'us-east-1',
+                      };
+                    } else if (newIntegrationType === 'trello') {
+                      authentication = { api_key: newIntegrationKey, token: newIntegrationExtra.token || '' };
+                    } else if (newIntegrationType === 'twilio') {
+                      authentication = {
+                        auth_token: newIntegrationKey,
+                        account_sid: newIntegrationExtra.account_sid || '',
+                        from_number: newIntegrationExtra.from_number || '',
+                      };
+                    } else if (newIntegrationType === 'airtable') {
+                      authentication = {
+                        api_key: newIntegrationKey,
+                        base_id: newIntegrationExtra.base_id || '',
+                      };
+                    } else if (
+                      (newIntegrationType === 'gmail' || newIntegrationType === 'calendar') &&
+                      newIntegrationKey.trim().startsWith('{')
+                    ) {
+                      try { authentication = JSON.parse(newIntegrationKey); } catch { /* keep api_key */ }
+                    } else if (newIntegrationType === 'webhook' && !newIntegrationKey.trim()) {
+                      authentication = {};
+                    }
+                    const categoryMap: Record<string, string> = {
+                      ai: 'AI/ML',
+                      communication: 'Social',
+                      devops: 'Cloud',
+                      analytics: 'Analytics',
+                      storage: 'Cloud',
+                    };
+                    const descriptionMap: Record<string, string> = {
+                      aws: 'aws s3',
+                      webhook: 'webhook',
+                    };
+                    await apiClient.createAPIIntegration({
                       name: newIntegrationName || template?.name || 'New Integration',
-                      type: 'REST',
-                      category: 'Other',
-                      endpoint: 'https://api.example.com', // Placeholder required by model
-                      description: newIntegrationType, // Save template ID here for icon mapping
-                      authentication: { api_key: newIntegrationKey },
-                      status: 'active'
+                      type: newIntegrationType === 'webhook' ? 'Webhook' : 'REST',
+                      category: categoryMap[template?.type || ''] || 'Other',
+                      endpoint: newIntegrationEndpoint || defaults?.endpoint || 'https://api.example.com',
+                      description: descriptionMap[newIntegrationType] || newIntegrationType,
+                      authentication,
+                      status: 'active',
                     });
                     setShowConnectDialog(false);
-                    loadIntegrations();
-                  } catch (error) {
-                    console.error('Failed to create integration', error);
+                    resetConnectForm();
+                    await loadIntegrations();
+                    toast({ title: 'Integration connected', description: `${template?.name || 'Service'} is ready to use.` });
+                  } catch (error: unknown) {
+                    toast({ title: 'Failed to connect', description: axiosErrorDetail(error) || errorMessage(error), variant: 'destructive' });
                   } finally {
                     setIsCreating(false);
                   }

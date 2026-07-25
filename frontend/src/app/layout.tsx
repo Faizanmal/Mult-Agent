@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { QueryProvider } from '@/providers/QueryProvider';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 export const metadata: Metadata = {
   title: 'Multi-Agent Orchestration | The Future of AI Workflows',
@@ -22,7 +23,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="font-sans antialiased">
         <QueryProvider>
-          {children}
+          <AuthProvider>
+            {children}
+          </AuthProvider>
         </QueryProvider>
       </body>
     </html>

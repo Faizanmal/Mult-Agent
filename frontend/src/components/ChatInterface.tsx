@@ -134,13 +134,13 @@ export function ChatInterface({ sessionId, agentId }: ChatInterfaceProps) {
                       <ReactMarkdown 
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          code: ({ className, children, node: _node, ref: _ref, ...props }) => {
+                          code: ({ className, children, ...props }) => {
                             const match = /language-(\w+)/.exec(className || '');
                             const isInline = !match && !String(children).includes('\n');
                             return !isInline && match ? (
                               <SyntaxHighlighter
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                style={oneDark as any}
+                                // @ts-expect-error prism theme export type mismatch
+                                style={oneDark}
                                 language={match[1]}
                                 PreTag="div"
                                 className="rounded-md text-sm"

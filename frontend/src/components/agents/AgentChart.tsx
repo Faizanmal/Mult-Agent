@@ -35,7 +35,11 @@ export default function AgentChart({ metrics }: { metrics: AgentMetric[] }) {
           <LineChart data={chartData}>
             <XAxis dataKey="time" />
             <YAxis />
-            <ChartTooltip content={({ content: _content, ...props }) => <ChartTooltipContent {...props} />} />
+            <ChartTooltip content={(props) => {
+              const { content: _unused, ...rest } = props;
+              void _unused;
+              return <ChartTooltipContent {...rest} />;
+            }} />
             <Line type="monotone" dataKey="latency" stroke="var(--color-latency)" strokeWidth={2} />
             <Line type="monotone" dataKey="throughput" stroke="var(--color-throughput)" strokeWidth={2} />
             <Line type="monotone" dataKey="accuracy" stroke="var(--color-accuracy)" strokeWidth={2} />

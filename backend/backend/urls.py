@@ -57,6 +57,7 @@ urlpatterns = [
     path('api/reporting/', include('reporting.urls', namespace='api_reporting')),
     path('api/integrations/', include('integrations.urls', namespace='integrations_api')),
     path('api/auth/', include('authentication.urls', namespace='api_auth')),
+    path('api/billing/', include('billing.urls', namespace='api_billing')),
 ]
 
 # Serve media files during development

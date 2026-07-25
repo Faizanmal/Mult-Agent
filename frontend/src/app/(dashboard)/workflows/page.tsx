@@ -70,6 +70,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import apiClient from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
+import type { IntegrationTool, WorkflowRecord } from '@/types/api';
+import { axiosErrorDetail, errorMessage, paginatedItems } from '@/types/api';
 import { cn } from '@/lib/utils';
 
 // Node types configuration
@@ -112,6 +116,9 @@ const CustomNode = ({ data, selected }: { data: { nodeType: string; label: strin
       {/* Node Content */}
       <div className="p-3">
         <h4 className="font-medium text-sm mb-1">{data.label}</h4>
+        {data.nodeType === 'integration' && !!data.tool_name && (
+          <p className="text-xs font-mono text-cyan-600 dark:text-cyan-400">{String(data.tool_name)}</p>
+        )}
         {data.description && (
           <p className="text-xs text-muted-foreground">{data.description}</p>
         )}
@@ -192,12 +199,10 @@ const initialEdges: Edge[] = [
   { id: 'e3-5', source: '3', sourceHandle: 'true', target: '5', markerEnd: { type: MarkerType.ArrowClosed }, label: 'Text' },
 ];
 
-// Templates
-const workflowTemplates = [
-  { id: 1, name: 'Customer Support Flow', category: 'support', nodes: 8 },
-  { id: 2, name: 'Data Processing Pipeline', category: 'data', nodes: 6 },
-  { id: 3, name: 'Content Generation', category: 'content', nodes: 5 },
-  { id: 4, name: 'Multi-Agent Coordination', category: 'coordination', nodes: 10 },
+// Fallback templates when API has none
+const fallbackWorkflowTemplates: WorkflowRecord[] = [
+  { id: '1', name: 'Integration Pipeline', category: 'integration', workflow_definition: { nodes: [], edges: [] } },
+  { id: '2', name: 'Gmail → Slack Alert', category: 'automation', workflow_definition: { nodes: [], edges: [] } },
 ];
 
 export default function WorkflowsPage() {
@@ -206,7 +211,34 @@ export default function WorkflowsPage() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [workflowName, setWorkflowName] = useState('My Workflow');
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const [savedWorkflows, setSavedWorkflows] = useState<WorkflowRecord[]>([]);
+  const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowRecord[]>(fallbackWorkflowTemplates);
+  const [integrationTools, setIntegrationTools] = useState<IntegrationTool[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [paramsJson, setParamsJson] = useState('{}');
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+
+  const loadSavedWorkflows = async () => {
+    try {
+      const res = await apiClient.getWorkflows();
+      setSavedWorkflows(paginatedItems(res.data as WorkflowRecord[] | { results?: WorkflowRecord[] }));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    loadSavedWorkflows();
+    apiClient.getWorkflowTemplates().then((res) => {
+      const list = paginatedItems(res.data as WorkflowRecord[] | { results?: WorkflowRecord[] });
+      if (list.length > 0) setWorkflowTemplates(list);
+    }).catch(console.error);
+    apiClient.getIntegrationTools().then((res) => {
+      setIntegrationTools(paginatedItems(res.data as IntegrationTool[] | { results?: IntegrationTool[] }));
+    }).catch(console.error);
+  }, []);
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -218,6 +250,9 @@ export default function WorkflowsPage() {
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
     setSelectedNode(node);
     setIsPanelOpen(true);
+    if (node.data?.nodeType === 'integration') {
+      setParamsJson(JSON.stringify(node.data.params || {}, null, 2));
+    }
   }, []);
 
   const onPaneClick = useCallback(() => {
@@ -277,6 +312,143 @@ export default function WorkflowsPage() {
     setNodes((nds) => [...nds, newNode]);
   };
 
+  const serializeNodes = () => nodes.map((n) => ({
+    id: n.id,
+    type: n.type,
+    position: n.position,
+    data: n.data,
+  }));
+
+  const loadWorkflow = async (id: string) => {
+    try {
+      const res = await apiClient.getWorkflow(id);
+      const wf = res.data as WorkflowRecord;
+      setWorkflowId(wf.id);
+      setWorkflowName(wf.name);
+      setNodes(wf.nodes?.length ? (wf.nodes as Node[]) : initialNodes);
+      setEdges(wf.edges?.length ? (wf.edges as Edge[]) : []);
+      toast({ title: 'Workflow loaded', description: wf.name });
+    } catch (e: unknown) {
+      toast({ title: 'Failed to load workflow', description: errorMessage(e), variant: 'destructive' });
+    }
+  };
+
+  const handleNewWorkflow = () => {
+    setWorkflowId(null);
+    setWorkflowName('My Workflow');
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+    setSelectedNode(null);
+    setIsPanelOpen(false);
+  };
+
+  const applyTemplate = async (template: WorkflowRecord) => {
+    if (template.workflow_definition) {
+      const def = template.workflow_definition;
+      setWorkflowId(null);
+      setWorkflowName(template.name);
+      setNodes((def.nodes as Node[]) || initialNodes);
+      setEdges((def.edges as Edge[]) || []);
+      toast({ title: 'Template applied', description: template.name });
+      return;
+    }
+    try {
+      const res = await apiClient.cloneWorkflowTemplate(template.id);
+      const wf = (res.data as { workflow?: WorkflowRecord })?.workflow ?? (res.data as WorkflowRecord);
+      if (wf?.id) {
+        await loadWorkflow(wf.id);
+      }
+    } catch {
+      toast({ title: 'Template loaded', description: 'Start from scratch and add integration nodes.' });
+      setWorkflowId(null);
+      setWorkflowName(template.name);
+      setNodes([{
+        id: 'node-trigger',
+        type: 'custom',
+        position: { x: 250, y: 50 },
+        data: { label: 'Start', nodeType: 'trigger', description: 'Workflow entry point' },
+      }]);
+      setEdges([]);
+    }
+  };
+
+  const deleteSelectedNode = () => {
+    if (!selectedNode) return;
+    setNodes((nds) => nds.filter((n) => n.id !== selectedNode.id));
+    setEdges((eds) => eds.filter((e) => e.source !== selectedNode.id && e.target !== selectedNode.id));
+    setSelectedNode(null);
+    setIsPanelOpen(false);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const payload = {
+        name: workflowName,
+        description: 'Visual integration workflow',
+        nodes: serializeNodes(),
+        edges,
+        status: 'active',
+      };
+      if (workflowId) {
+        await apiClient.updateWorkflow(workflowId, payload);
+      } else {
+        const res = await apiClient.createWorkflow(payload);
+        setWorkflowId((res.data as WorkflowRecord).id);
+      }
+      await loadSavedWorkflows();
+      toast({ title: 'Workflow saved' });
+    } catch (e: unknown) {
+      toast({ title: 'Failed to save workflow', description: errorMessage(e), variant: 'destructive' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleExecute = async () => {
+    setIsExecuting(true);
+    try {
+      let id = workflowId;
+      if (!id) {
+        const res = await apiClient.createWorkflow({
+          name: workflowName,
+          nodes: serializeNodes(),
+          edges,
+          status: 'active',
+        });
+        id = (res.data as WorkflowRecord).id;
+        setWorkflowId(id);
+      }
+      const execRes = await apiClient.executeWorkflow(id!, { input_data: {} });
+      const exec = execRes.data as { status?: string; error_message?: string };
+      toast({
+        title: exec.status === 'completed' ? 'Workflow completed' : 'Workflow finished',
+        description: exec.error_message || `Status: ${exec.status}`,
+        variant: exec.status === 'failed' ? 'destructive' : 'default',
+      });
+    } catch (e: unknown) {
+      toast({ title: 'Workflow execution failed', description: axiosErrorDetail(e) || errorMessage(e), variant: 'destructive' });
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const addIntegrationNode = (tool: IntegrationTool) => {
+    const newNode: Node = {
+      id: `node-${Date.now()}`,
+      type: 'custom',
+      position: { x: 400, y: 100 + nodes.length * 50 },
+      data: {
+        label: tool.name,
+        nodeType: 'integration',
+        description: tool.description,
+        tool_name: tool.name,
+        params: {},
+      },
+    };
+    setNodes((nds) => [...nds, newNode]);
+  };
+
   return (
     <AppLayout>
       <div className="h-[calc(100vh-7rem)] flex flex-col">
@@ -298,7 +470,20 @@ export default function WorkflowsPage() {
               />
               <p className="text-sm text-muted-foreground">Visual Workflow Builder</p>
             </div>
-            <Badge variant="secondary">Draft</Badge>
+            <Badge variant="secondary">{workflowId ? 'Saved' : 'Draft'}</Badge>
+            {savedWorkflows.length > 0 && (
+              <Select value={workflowId || ''} onValueChange={(v) => v && loadWorkflow(v)}>
+                <SelectTrigger className="w-48 h-8">
+                  <SelectValue placeholder="Open workflow..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {savedWorkflows.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button variant="ghost" size="sm" onClick={handleNewWorkflow}>New</Button>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" className="gap-2">
@@ -316,13 +501,13 @@ export default function WorkflowsPage() {
               <Download className="h-4 w-4" />
               Export
             </Button>
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button variant="outline" size="sm" className="gap-2" onClick={handleSave} disabled={isSaving}>
               <Save className="h-4 w-4" />
-              Save
+              {isSaving ? 'Saving...' : 'Save'}
             </Button>
-            <Button className="gap-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:opacity-90">
+            <Button className="gap-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:opacity-90" onClick={handleExecute} disabled={isExecuting}>
               <Play className="h-4 w-4" />
-              Execute
+              {isExecuting ? 'Running...' : 'Execute'}
             </Button>
           </div>
         </motion.div>
@@ -342,8 +527,9 @@ export default function WorkflowsPage() {
               </CardHeader>
               <CardContent className="p-2">
                 <Tabs defaultValue="nodes">
-                  <TabsList className="w-full grid grid-cols-2">
+                  <TabsList className="w-full grid grid-cols-3">
                     <TabsTrigger value="nodes" className="text-xs">Nodes</TabsTrigger>
+                    <TabsTrigger value="integrations" className="text-xs">Integrations</TabsTrigger>
                     <TabsTrigger value="templates" className="text-xs">Templates</TabsTrigger>
                   </TabsList>
                   
@@ -374,6 +560,26 @@ export default function WorkflowsPage() {
                     </ScrollArea>
                   </TabsContent>
 
+                  <TabsContent value="integrations" className="mt-2">
+                    <ScrollArea className="h-[calc(100vh-22rem)]">
+                      <div className="space-y-2 pr-4">
+                        {integrationTools.length === 0 ? (
+                          <p className="text-xs text-muted-foreground p-2">Connect integrations first, then add tools here.</p>
+                        ) : integrationTools.map((tool) => (
+                          <motion.button
+                            key={`${tool.integration_id}-${tool.name}`}
+                            whileHover={{ scale: 1.02 }}
+                            onClick={() => addIntegrationNode(tool)}
+                            className="w-full flex flex-col gap-1 p-3 rounded-lg border border-dashed hover:border-cyan-500 hover:bg-cyan-500/5 text-left"
+                          >
+                            <span className="text-sm font-medium">{tool.name}</span>
+                            <span className="text-xs text-muted-foreground">{tool.integration_name}</span>
+                          </motion.button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </TabsContent>
+
                   <TabsContent value="templates" className="mt-2">
                     <ScrollArea className="h-[calc(100vh-22rem)]">
                       <div className="space-y-2 pr-4">
@@ -382,11 +588,17 @@ export default function WorkflowsPage() {
                             key={template.id}
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
+                            onClick={() => applyTemplate(template)}
                             className="w-full flex items-center justify-between p-3 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left"
                           >
                             <div>
                               <p className="text-sm font-medium">{template.name}</p>
-                              <p className="text-xs text-muted-foreground">{template.nodes} nodes</p>
+                              <p className="text-xs text-muted-foreground">
+                                {template.category || 'template'}
+                                {template.workflow_definition?.nodes?.length
+                                  ? ` • ${template.workflow_definition.nodes.length} nodes`
+                                  : ''}
+                              </p>
                             </div>
                             <ChevronRight className="h-4 w-4 text-muted-foreground" />
                           </motion.button>
@@ -491,12 +703,61 @@ export default function WorkflowsPage() {
                     </Select>
                   </div>
                   
+                  {selectedNode.data.nodeType === 'integration' && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Integration Tool</Label>
+                        <Select
+                          value={String(selectedNode.data.tool_name ?? '')}
+                          onValueChange={(value) => {
+                            const tool = integrationTools.find((t) => t.name === value);
+                            setNodes((current) => current.map((node) => node.id === selectedNode.id
+                              ? { ...node, data: { ...node.data, tool_name: value, label: value, description: tool?.description || '' } }
+                              : node));
+                          }}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Select tool" /></SelectTrigger>
+                          <SelectContent>
+                            {integrationTools.map((t) => (
+                              <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Tool Parameters (JSON)</Label>
+                        <Textarea
+                          className="font-mono text-xs"
+                          rows={5}
+                          value={paramsJson}
+                          onChange={(e) => {
+                            setParamsJson(e.target.value);
+                            try {
+                              const parsed = JSON.parse(e.target.value || '{}');
+                              setNodes((current) => current.map((node) => node.id === selectedNode.id
+                                ? { ...node, data: { ...node.data, params: parsed } }
+                                : node));
+                            } catch { /* invalid json while typing */ }
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
+
                   <div className="pt-4 border-t flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1 gap-2">
+                    <Button variant="outline" size="sm" className="flex-1 gap-2" onClick={() => {
+                      if (!selectedNode) return;
+                      const copy: Node = {
+                        ...selectedNode,
+                        id: `node-${Date.now()}`,
+                        position: { x: selectedNode.position.x + 40, y: selectedNode.position.y + 40 },
+                      };
+                      setNodes((nds) => [...nds, copy]);
+                    }}>
                       <Copy className="h-4 w-4" />
                       Duplicate
                     </Button>
-                    <Button variant="destructive" size="sm" className="flex-1 gap-2">
+                    <Button variant="destructive" size="sm" className="flex-1 gap-2" onClick={deleteSelectedNode}>
                       <Trash2 className="h-4 w-4" />
                       Delete
                     </Button>

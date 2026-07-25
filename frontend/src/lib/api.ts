@@ -374,7 +374,7 @@ class ApiClient {
     
     this.client = axios.create({
       baseURL: this.baseURL,
-      timeout: 30000,
+      timeout: 120000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -382,15 +382,27 @@ class ApiClient {
       withCredentials: true,
     });
 
-    // Request interceptor for authentication
+    // Request interceptor for authentication (enterprise JWT)
     this.client.interceptors.request.use(
       (config) => {
-        // For better security, we recommend using HttpOnly cookies
-        // But for now, we'll keep the localStorage approach with improvements
         const token = this.getAuthToken();
+
         if (token) {
-          config.headers.Authorization = `Token ${token}`;
+          config.headers.Authorization = `Bearer ${token}`;
         }
+
+        if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
+          console.debug('API Request:', {
+            url: config.url,
+            method: config.method,
+            hasAuth: !!token,
+            headers: {
+              authorization: config.headers.Authorization ? 'present' : 'missing',
+              contentType: config.headers['Content-Type'],
+            },
+          });
+        }
+
         return config;
       },
       (error) => Promise.reject(error)
@@ -400,15 +412,41 @@ class ApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
-        console.error('API Error:', error.response?.data || error.message);
+        const errorData = error.response?.data;
+        const errorStatus = error.response?.status;
+        const errorMessage = error.message;
+        const errorConfig = error.config;
+
+        const detailedError = {
+          status: errorStatus,
+          message: errorMessage,
+          data: errorData,
+          url: errorConfig?.url,
+          method: errorConfig?.method,
+          headers: {
+            authorization: errorConfig?.headers?.Authorization ? 'present' : 'missing',
+            contentType: errorConfig?.headers?.['Content-Type'],
+          }
+        };
+
+        console.error('API Error Details:', detailedError);
         
         // Handle 401 unauthorized
-        if (error.response?.status === 401) {
+        if (errorStatus === 401) {
           this.removeAuthToken();
           // Redirect to login if needed
           if (typeof window !== 'undefined') {
             window.location.href = '/login';
           }
+        }
+
+        // Handle 403 Forbidden
+        if (errorStatus === 403) {
+          console.warn('Access Forbidden (403):', {
+            detail: errorData?.detail,
+            error: errorData?.error,
+            hasToken: !!this.getAuthToken(),
+          });
         }
         
         return Promise.reject(error);
@@ -416,35 +454,29 @@ class ApiClient {
     );
   }
 
-  // Enhanced auth token management with security improvements
+  // Enterprise JWT lives in access_token (AuthContext). Fall back to legacy keys.
   private getAuthToken(): string | null {
-    if (typeof window !== 'undefined') {
-      // Add additional security checks
-      const token = localStorage.getItem('auth_token');
-      if (token) {
-        // In a more secure implementation, you might want to validate the token format
-        // or check if it's still valid before returning it
-        return token;
-      }
-    }
-    return null;
+    if (typeof window === 'undefined') return null;
+    return (
+      localStorage.getItem('access_token') ||
+      localStorage.getItem('auth_token') ||
+      localStorage.getItem('token')
+    );
   }
 
   public setAuthToken(token: string): void {
-    if (typeof window !== 'undefined') {
-      // Add security headers to prevent XSS
-      localStorage.setItem('auth_token', token);
-      // Set a cookie as a backup (optional)
-      document.cookie = `auth_token=${token}; path=/; secure; samesite=strict`;
-    }
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('access_token', token);
+    localStorage.setItem('auth_token', token);
   }
 
   private removeAuthToken(): void {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth_token');
-      // Remove cookie as well
-      document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; secure; samesite=strict';
-    }
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('refreshToken');
   }
 
   // Agent Management APIs
@@ -952,7 +984,7 @@ class ApiClient {
   }
 
   // API Integration Hub APIs
-  public async getAPIIntegrations(): Promise<{ integrations: Array<Record<string, unknown>> }> {
+  public async getAPIIntegrations(): Promise<{ results?: Array<Record<string, unknown>>; integrations?: Array<Record<string, unknown>> }> {
     const response = await this.client.get('/api-integrations/api/integrations/');
     return response.data;
   }
@@ -971,7 +1003,7 @@ class ApiClient {
     await this.client.delete(`/api-integrations/api/integrations/${id}/`);
   }
 
-  public async testAPIIntegration(id: string): Promise<{ success: boolean; response_time: number; status_code?: number; error?: string }> {
+  public async testAPIIntegration(id: string): Promise<{ success: boolean; message?: string; response_time: number; status_code?: number; error?: string }> {
     const response = await this.client.post(`/api-integrations/api/integrations/${id}/test/`);
     return response.data;
   }
@@ -982,7 +1014,14 @@ class ApiClient {
   }
 
   public async executeAPIIntegration(id: string, parameters: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const response = await this.client.post(`/api-integrations/api/integrations/${id}/execute/`, { parameters });
+    const tool = (parameters.tool || parameters.action || '') as string;
+    const params = (parameters.params as Record<string, unknown>) || parameters;
+    const response = await this.client.post(`/api-integrations/api/integrations/${id}/execute/`, {
+      tool,
+      params,
+      action: tool,
+      parameters: params,
+    });
     return response.data;
   }
 
@@ -993,6 +1032,11 @@ class ApiClient {
 
   public async getIntegrationMetrics(id: string, timeRange: string = '24h'): Promise<{ metrics: Record<string, unknown> }> {
     const response = await this.client.get(`/api-integrations/api/integrations/${id}/metrics/`, { params: { time_range: timeRange } });
+    return response.data;
+  }
+
+  public async getIntegrationActivity(): Promise<{ results: Array<Record<string, unknown>> }> {
+    const response = await this.client.get('/api-integrations/api/activity/');
     return response.data;
   }
 
@@ -1262,13 +1306,38 @@ class ApiClient {
     return response.data;
   }
 
-  public async coordinateAgents(sessionId: string, agentIds: string[], task: string, strategy?: string): Promise<CoordinationResult> {
+  public async coordinateAgents(sessionId: string, agentIds: string[], task: string, strategy?: string, extras?: {
+    use_model_coordination?: boolean;
+    model_ids?: string[];
+  }): Promise<CoordinationResult> {
     const response = await this.client.post(`/coordination/api/sessions/${sessionId}/coordinate_agents/`, {
       agent_ids: agentIds,
       task,
-      strategy
+      strategy,
+      ...(extras || {}),
     });
     return response.data;
+  }
+
+  public async quickCoordinateAgents(payload: {
+    name?: string;
+    strategy: string;
+    agent_ids: string[];
+    task: string;
+    use_model_coordination?: boolean;
+    model_ids?: string[];
+  }): Promise<CoordinationResult & { id?: string }> {
+    const response = await this.client.post('/coordination/api/sessions/quick_run/', payload);
+    return response.data;
+  }
+
+  public async getCoordinationStrategies(): Promise<{ strategies: Array<{ id: string; name: string; description: string }> }> {
+    const response = await this.client.get('/coordination/api/sessions/strategies/');
+    return response.data;
+  }
+
+  public async deleteCoordinationSession(sessionId: string): Promise<void> {
+    await this.client.delete(`/coordination/api/sessions/${sessionId}/`);
   }
 
   public async getCoordinationInteractions(sessionId: string): Promise<{ interactions: AgentInteraction[]; count: number }> {
@@ -1298,8 +1367,45 @@ class ApiClient {
     model_id: string;
     capabilities?: string[];
     config?: Record<string, unknown>;
+    api_key?: string;
+    is_default?: boolean;
   }): Promise<AIModelConfig> {
     const response = await this.client.post('/intelligence/api/models/', modelData);
+    return response.data;
+  }
+
+  public async updateAIModel(id: string, modelData: Record<string, unknown>): Promise<AIModelConfig> {
+    const response = await this.client.patch(`/intelligence/api/models/${id}/`, modelData);
+    return response.data;
+  }
+
+  public async deleteAIModel(id: string): Promise<{ success: boolean }> {
+    const response = await this.client.delete(`/intelligence/api/models/${id}/`);
+    return response.data;
+  }
+
+  public async seedDefaultAIModels(): Promise<{ created: string[]; count: number }> {
+    const response = await this.client.post('/intelligence/api/models/seed_defaults/');
+    return response.data;
+  }
+
+  public async coordinateModels(payload: {
+    prompt: string;
+    mode: string;
+    model_ids?: string[];
+    options?: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    const response = await this.client.post('/intelligence/api/coordinate/run/', payload);
+    return response.data;
+  }
+
+  public async getModelCoordinationHistory(): Promise<{ results: Array<Record<string, unknown>>; count: number }> {
+    const response = await this.client.get('/intelligence/api/coordinate/history/');
+    return response.data;
+  }
+
+  public async getModelCoordinationModes(): Promise<{ modes: Array<{ id: string; name: string; description: string }> }> {
+    const response = await this.client.get('/intelligence/api/coordinate/modes/');
     return response.data;
   }
 
@@ -1516,7 +1622,7 @@ class ApiClient {
   
   // Workflow Builder Methods  
   public async getWorkflowTemplates(params?: { category?: string }): Promise<AxiosResponse> {
-    return this.client.get('/workflow-builder/templates/', { params });
+    return this.client.get('/workflow-builder/api/templates/', { params });
   }
   
   public async createWorkflowTemplate(data: {
@@ -1525,44 +1631,78 @@ class ApiClient {
     category: string;
     workflow_definition: Record<string, unknown>;
   }): Promise<AxiosResponse> {
-    return this.client.post('/workflow-builder/templates/', data);
+    return this.client.post('/workflow-builder/api/templates/', data);
   }
   
   public async cloneWorkflowTemplate(templateId: string): Promise<AxiosResponse> {
-    return this.client.post(`/workflow-builder/templates/${templateId}/clone/`);
+    return this.client.post(`/workflow-builder/api/templates/${templateId}/use_template/`);
   }
   
   public async getWorkflows(): Promise<AxiosResponse> {
-    return this.client.get('/workflow-builder/workflows/');
+    return this.client.get('/workflow-builder/api/workflows/');
+  }
+
+  public async getWorkflow(workflowId: string): Promise<AxiosResponse> {
+    return this.client.get(`/workflow-builder/api/workflows/${workflowId}/`);
   }
   
   public async createWorkflow(data: {
     name: string;
-    description: string;
+    description?: string;
     nodes: Array<Record<string, unknown>>;
     edges: Array<Record<string, unknown>>;
+    status?: string;
   }): Promise<AxiosResponse> {
-    return this.client.post('/workflow-builder/workflows/', data);
+    return this.client.post('/workflow-builder/api/workflows/', data);
+  }
+
+  public async updateWorkflow(workflowId: string, data: Record<string, unknown>): Promise<AxiosResponse> {
+    return this.client.patch(`/workflow-builder/api/workflows/${workflowId}/`, data);
   }
   
   public async executeWorkflow(workflowId: string, data?: Record<string, unknown>): Promise<AxiosResponse> {
-    return this.client.post(`/workflow-builder/workflows/${workflowId}/execute/`, data);
+    return this.client.post(`/workflow-builder/api/workflows/${workflowId}/execute/`, data || {});
   }
   
   public async validateWorkflow(workflowId: string): Promise<AxiosResponse> {
-    return this.client.post(`/workflow-builder/workflows/${workflowId}/validate/`);
+    return this.client.post(`/workflow-builder/api/workflows/${workflowId}/validate/`);
   }
   
   public async deleteWorkflowTemplate(templateId: string): Promise<AxiosResponse> {
-    return this.client.delete(`/workflow-builder/templates/${templateId}/`);
+    return this.client.delete(`/workflow-builder/api/templates/${templateId}/`);
   }
   
   public async executeWorkflowTemplate(templateId: string, data?: Record<string, unknown>): Promise<AxiosResponse> {
-    return this.client.post(`/workflow-builder/templates/${templateId}/execute/`, data);
+    return this.client.post(`/workflow-builder/api/templates/${templateId}/execute/`, data);
   }
   
   public async getWorkflowExecutions(): Promise<AxiosResponse> {
-    return this.client.get('/workflow-builder/executions/');
+    return this.client.get('/workflow-builder/api/executions/');
+  }
+
+  // Scheduled automations
+  public async getAutomations(): Promise<AxiosResponse> {
+    return this.client.get('/api-integrations/api/automations/');
+  }
+
+  public async createAutomation(data: Record<string, unknown>): Promise<AxiosResponse> {
+    return this.client.post('/api-integrations/api/automations/', data);
+  }
+
+  public async runAutomation(id: string): Promise<AxiosResponse> {
+    return this.client.post(`/api-integrations/api/automations/${id}/run/`);
+  }
+
+  public async updateAutomation(id: string, data: Record<string, unknown>): Promise<AxiosResponse> {
+    return this.client.patch(`/api-integrations/api/automations/${id}/`, data);
+  }
+
+  public async deleteAutomation(id: string): Promise<AxiosResponse> {
+    return this.client.delete(`/api-integrations/api/automations/${id}/`);
+  }
+
+  public async getIntegrationTools(): Promise<AxiosResponse> {
+    return this.client.get('/api-integrations/api/tools/');
   }
 }
 
@@ -1715,11 +1855,20 @@ export const {
   getCoordinationSessions,
   createCoordinationSession,
   coordinateAgents,
+  quickCoordinateAgents,
+  getCoordinationStrategies,
+  deleteCoordinationSession,
   getCoordinationInteractions,
   getCoordinationMetrics,
   // Multi-Modal Intelligence methods
   getAIModels,
   createAIModel,
+  updateAIModel,
+  deleteAIModel,
+  seedDefaultAIModels,
+  coordinateModels,
+  getModelCoordinationHistory,
+  getModelCoordinationModes,
   processMultiModalIntelligence,
   crossModalAnalysis,
   getMultiModalSessions,
@@ -1765,15 +1914,24 @@ export const {
   createWorkflowTemplate,
   cloneWorkflowTemplate,
   getWorkflows,
+  getWorkflow,
   createWorkflow,
   executeWorkflow,
   validateWorkflow,
   deleteWorkflowTemplate,
   executeWorkflowTemplate,
   getWorkflowExecutions,
-} = new Proxy(apiClient as any, {
-  get(target, prop) {
-    const value = target[prop];
+  updateWorkflow,
+  getAutomations,
+  createAutomation,
+  runAutomation,
+  updateAutomation,
+  deleteAutomation,
+  getIntegrationTools,
+  getIntegrationActivity,
+} = new Proxy(apiClient, {
+  get(target, prop, receiver) {
+    const value = Reflect.get(target, prop, receiver);
     if (typeof value === 'function') {
       return value.bind(target);
     }

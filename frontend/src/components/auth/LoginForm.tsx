@@ -68,7 +68,7 @@ export const LoginForm: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      const success = await login(loginData.email, loginData.password, loginData.rememberMe);
+      const success = await login(loginData.email, loginData.password);
       if (!success) {
         setError('Invalid email or password. Please try again.');
       }

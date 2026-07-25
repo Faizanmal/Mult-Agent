@@ -36,14 +36,22 @@ class NotificationCampaignDetailView(generics.RetrieveUpdateDestroyAPIView):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def send_campaign_view(request, pk):
-    """Send notification campaign"""
+    """Mark a campaign as sent and return delivery summary."""
+    from django.utils import timezone
     campaign = get_object_or_404(NotificationCampaign, pk=pk, user=request.user)
-    
-    # Implementation for sending campaign would go here
+    if hasattr(campaign, 'status'):
+        campaign.status = 'sent'
+    if hasattr(campaign, 'sent_at'):
+        campaign.sent_at = timezone.now()
+    campaign.save()
+    recipients = 0
+    if hasattr(campaign, 'recipients') and isinstance(campaign.recipients, list):
+        recipients = len(campaign.recipients)
     return Response({
-        'sent': 100,
-        'failed': 5,
-        'campaign_id': str(campaign.id)
+        'sent': recipients,
+        'failed': 0,
+        'campaign_id': str(campaign.id),
+        'message': 'Campaign marked as sent. Connect an email provider to deliver messages.',
     })
 
 

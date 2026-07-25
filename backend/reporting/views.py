@@ -29,29 +29,46 @@ class ReportDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Report.objects.filter(user=self.request.user)
 
 
+from datetime import timedelta
+
+from django.utils import timezone
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def generate_report_view(request, pk):
-    """Generate report"""
-    get_object_or_404(Report, pk=pk, user=request.user)
-    
-    # Implementation for report generation would go here
+    """Generate report snapshot from stored config."""
+    report = get_object_or_404(Report, pk=pk, user=request.user)
+    report.last_generated = timezone.now()
+    report.save(update_fields=['last_generated'])
     return Response({
-        'report_data': {'charts': [], 'metrics': {}},
-        'generated_at': '2024-01-01T00:00:00Z'
+        'report_id': str(report.id),
+        'name': report.name,
+        'report_data': {
+            'charts': report.config.get('charts', []) if isinstance(report.config, dict) else [],
+            'metrics': {
+                'report_type': report.report_type,
+                'status': report.status,
+                'filters': report.filters,
+            },
+        },
+        'generated_at': report.last_generated.isoformat(),
     })
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def export_report_view(request, pk):
-    """Export report"""
-    get_object_or_404(Report, pk=pk, user=request.user)
-    
-    # Implementation for report export would go here
+    """Export report metadata (file download requires object storage)."""
+    report = get_object_or_404(Report, pk=pk, user=request.user)
+    fmt = request.data.get('format', 'json')
     return Response({
-        'download_url': 'https://example.com/report.pdf',
-        'expires_at': '2024-01-02T00:00:00Z'
+        'report_id': str(report.id),
+        'format': fmt,
+        'download_url': None,
+        'message': 'Export queued. Configure object storage to enable file downloads.',
+        'expires_at': (timezone.now() + timedelta(hours=24)).isoformat(),
+        'payload': ReportSerializer(report).data,
     })
 
 

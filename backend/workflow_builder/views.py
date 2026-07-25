@@ -1,7 +1,8 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
 from django.db import models
@@ -82,20 +83,32 @@ class VisualWorkflowViewSet(viewsets.ModelViewSet):
     """ViewSet for visual workflows"""
     queryset = VisualWorkflow.objects.all()
     serializer_class = VisualWorkflowSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny] if settings.DEBUG else [IsAuthenticated]
     
     def get_queryset(self):
         """Filter by user"""
+        if settings.DEBUG and getattr(self.request.user, 'is_anonymous', True):
+            return VisualWorkflow.objects.all()
         if self.request.user.is_staff:
             return VisualWorkflow.objects.all()
         return VisualWorkflow.objects.filter(user=self.request.user)
     
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        if settings.DEBUG and getattr(self.request.user, 'is_anonymous', True):
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            user, _ = User.objects.get_or_create(
+                email='default@example.com',
+                defaults={'username': 'default_user', 'first_name': 'Default', 'last_name': 'User'},
+            )
+            serializer.save(user=user)
+        else:
+            serializer.save(user=self.request.user)
     
     @action(detail=True, methods=['post'])
-    async def execute(self, request, pk=None):
+    def execute(self, request, pk=None):
         """Execute a workflow"""
+        import asyncio
         from agents.services.workflow_engine import WorkflowEngine
         
         workflow = self.get_object()
@@ -130,13 +143,15 @@ class VisualWorkflowViewSet(viewsets.ModelViewSet):
                 'settings': workflow.settings
             }
             
+            user_id = str(request.user.id) if getattr(request.user, 'is_authenticated', False) else str(workflow.user_id)
+            
             # Execute the workflow
-            result = await engine.execute_workflow(
+            result = asyncio.run(engine.execute_workflow(
                 workflow_definition=workflow_definition,
                 input_data=input_data,
-                user_id=str(request.user.id),
+                user_id=user_id,
                 session_id=None
-            )
+            ))
             
             # Update execution record with results
             execution.status = 'completed' if result['success'] else 'failed'
@@ -174,10 +189,12 @@ class VisualWorkflowViewSet(viewsets.ModelViewSet):
         
         # Convert nodes to steps
         for node in nodes:
+            data = node.get('data', {})
+            node_type = data.get('nodeType') or node.get('type', 'agent')
             step = {
                 'id': node.get('id'),
-                'type': self._map_node_type_to_step_type(node.get('type', 'agent')),
-                'config': node.get('data', {}),
+                'type': self._map_node_type_to_step_type(node_type),
+                'config': data,
                 'dependencies': dependency_map.get(node.get('id'), [])
             }
             steps.append(step)
@@ -192,7 +209,8 @@ class VisualWorkflowViewSet(viewsets.ModelViewSet):
             'action': 'agent_task',
             'trigger': 'agent_task',
             'transform': 'data_transform',
-            'integration': 'api_call',
+            'integration': 'integration_call',
+            'integration_call': 'integration_call',
             'delay': 'delay',
             'loop': 'parallel'
         }

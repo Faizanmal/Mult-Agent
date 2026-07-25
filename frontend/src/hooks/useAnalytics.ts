@@ -47,7 +47,7 @@ export function useAnalytics() {
     try {
       const response = await fetch('/api/reporting/dashboard/', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('access_token') || localStorage.getItem('token')}`,
         },
       });
 
@@ -65,7 +65,7 @@ export function useAnalytics() {
     try {
       const response = await fetch('/api/reporting/system_health/', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('access_token') || localStorage.getItem('token')}`,
         },
       });
 
@@ -85,7 +85,7 @@ export function useAnalytics() {
         `/api/reporting/usage_trends/?days=${days}`,
         {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Authorization': `Bearer ${localStorage.getItem('access_token') || localStorage.getItem('token')}`,
           },
         }
       );
@@ -104,7 +104,7 @@ export function useAnalytics() {
         `/api/reporting/model_usage/?days=${days}`,
         {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Authorization': `Bearer ${localStorage.getItem('access_token') || localStorage.getItem('token')}`,
           },
         }
       );
@@ -121,7 +121,7 @@ export function useAnalytics() {
     try {
       const response = await fetch('/api/reporting/performance/', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('access_token') || localStorage.getItem('token')}`,
         },
       });
 

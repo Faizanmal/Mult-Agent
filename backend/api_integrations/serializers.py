@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import APIIntegration, APITemplate, APICallResult, IntegrationUsage, IntegrationAlert
+from .models import APIIntegration, APITemplate, APICallResult, IntegrationUsage, IntegrationAlert, ScheduledAutomation
 
 
 class APIIntegrationSerializer(serializers.ModelSerializer):
@@ -36,13 +36,15 @@ class APITemplateSerializer(serializers.ModelSerializer):
 
 
 class APICallResultSerializer(serializers.ModelSerializer):
+    integration_name = serializers.CharField(source='integration.name', read_only=True)
+
     class Meta:
         model = APICallResult
         fields = [
-            'id', 'integration', 'status', 'response_data', 'response_time',
-            'error_message', 'request_data', 'timestamp'
+            'id', 'integration', 'integration_name', 'status', 'response_data',
+            'response_time', 'error_message', 'request_data', 'timestamp',
         ]
-        read_only_fields = ['id', 'timestamp']
+        read_only_fields = ['id', 'timestamp', 'integration_name']
 
 
 class IntegrationUsageSerializer(serializers.ModelSerializer):
@@ -64,3 +66,14 @@ class IntegrationAlertSerializer(serializers.ModelSerializer):
             'resolved_at', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']
+
+
+class ScheduledAutomationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ScheduledAutomation
+        fields = [
+            'id', 'name', 'automation_type', 'frequency', 'cron_expression',
+            'is_active', 'config', 'workflow', 'last_run_at', 'next_run_at',
+            'last_result', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'last_run_at', 'next_run_at', 'last_result', 'created_at', 'updated_at']

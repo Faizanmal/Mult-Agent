@@ -386,46 +386,37 @@ class SessionConsumer(AsyncWebsocketConsumer):
             context={'created_via': 'websocket', 'original_session_id': self.session_id}
         )
         
-        # Create default agents for this session
-        default_agents = [
-            {
-                'name': '   trator',
-                'type': 'orchestrator',
-                'capabilities': ['task_coordination', 'agent_management', 'workflow_optimization']
-            },
-            {
-                'name': 'Vision Analyst',
-                'type': 'vision', 
-                'capabilities': ['image_analysis', 'object_detection', 'visual_reasoning']
-            },
-            {
-                'name': 'Logic Engine',
-                'type': 'reasoning',
-                'capabilities': ['logical_reasoning', 'problem_solving', 'analysis']
-            }
-        ]
-        
-        # Get or create a default user for agents
-        # Note: CustomUser uses email as USERNAME_FIELD
-        default_user, created = User.objects.get_or_create(
-            email='system@localhost',
-            defaults={
-                'username': 'system',
-                'first_name': 'System',
-                'last_name': 'User',
-                'is_active': True
-            }
-        )
-        
-        for agent_data in default_agents:
-            agent = Agent.objects.create(
-                name=agent_data['name'],
-                type=agent_data['type'],
-                capabilities=agent_data['capabilities'],
-                owner=default_user,
-                is_active=True,
-                status='idle'
-            )
+        # Create default agents for this session — reuse platform agents, don't duplicate
+        default_agent_names = ['Master Orchestrator', 'Vision Analyst', 'Logic Engine', 'Action Executor']
+        existing_agents = list(Agent.objects.filter(
+            name__in=default_agent_names, is_active=True
+        )[:4])
+
+        if not existing_agents:
+            default_agents = [
+                {'name': 'Master Orchestrator', 'type': 'orchestrator',
+                 'capabilities': ['task_coordination', 'agent_management', 'workflow_optimization']},
+                {'name': 'Vision Analyst', 'type': 'vision',
+                 'capabilities': ['image_analysis', 'object_detection', 'visual_reasoning']},
+                {'name': 'Logic Engine', 'type': 'reasoning',
+                 'capabilities': ['logical_reasoning', 'problem_solving', 'analysis']},
+            ]
+            for agent_data in default_agents:
+                agent = Agent.objects.create(
+                    name=agent_data['name'],
+                    type=agent_data['type'],
+                    capabilities=agent_data['capabilities'],
+                    owner=default_user,
+                    is_active=True,
+                    status='idle',
+                )
+                existing_agents.append(agent)
+        else:
+            for agent in existing_agents:
+                session.agents.add(agent)
+            return session
+
+        for agent in existing_agents:
             session.agents.add(agent)
             
         return session

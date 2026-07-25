@@ -161,6 +161,183 @@ class UserRoleAssignment(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.role.name}"
 
+# ---------------------------------------------------------------------------
+# Enterprise Authentication Models
+# ---------------------------------------------------------------------------
+
+PROVIDER_CHOICES = [
+    ('email', 'Email/Password'),
+    ('google', 'Google'),
+    ('github', 'GitHub'),
+    ('firebase', 'Firebase'),
+]
+
+AUDIT_ACTIONS = [
+    ('login', 'Login'),
+    ('logout', 'Logout'),
+    ('login_failed', 'Login Failed'),
+    ('register', 'Register'),
+    ('password_reset', 'Password Reset'),
+    ('password_change', 'Password Change'),
+    ('email_verified', 'Email Verified'),
+    ('oauth_login', 'OAuth Login'),
+    ('oauth_login_failed', 'OAuth Login Failed'),
+    ('provider_linked', 'Provider Linked'),
+    ('provider_unlinked', 'Provider Unlinked'),
+    ('token_refresh', 'Token Refresh'),
+    ('logout_all', 'Logout All Devices'),
+    ('session_revoked', 'Session Revoked'),
+    ('account_deleted', 'Account Deleted'),
+    ('admin_action', 'Admin Action'),
+]
+
+
+class AuthProvider(models.Model):
+    """Linked OAuth/auth providers per user."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='auth_providers'
+    )
+    provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES)
+    provider_user_id = models.CharField(max_length=255)
+    email = models.EmailField(blank=True, null=True)
+    display_name = models.CharField(max_length=255, blank=True)
+    avatar_url = models.URLField(blank=True, null=True)
+    access_token_hint = models.CharField(max_length=10, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('provider', 'provider_user_id')]
+        indexes = [
+            models.Index(fields=['user', 'provider']),
+            models.Index(fields=['provider', 'provider_user_id']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} – {self.provider}"
+
+
+class OAuthState(models.Model):
+    """Short-lived state tokens for OAuth CSRF prevention (PKCE + state)."""
+    state = models.CharField(max_length=128, unique=True, db_index=True)
+    provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES)
+    code_verifier = models.CharField(max_length=128, blank=True)
+    redirect_uri = models.URLField(blank=True)
+    user_id = models.UUIDField(null=True, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    def is_valid(self):
+        return not self.used and timezone.now() < self.expires_at
+
+    class Meta:
+        indexes = [models.Index(fields=['state', 'provider'])]
+
+
+class EnterpriseRefreshToken(models.Model):
+    """Refresh tokens with rotation, revocation, and theft detection."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='enterprise_refresh_tokens'
+    )
+    hashed_token = models.CharField(max_length=64, unique=True, db_index=True)
+    family = models.UUIDField(default=uuid.uuid4, db_index=True)
+    session_id = models.UUIDField(null=True, blank=True)
+    provider = models.CharField(max_length=20, default='email', choices=PROVIDER_CHOICES)
+
+    device_name = models.CharField(max_length=255, blank=True)
+    device_type = models.CharField(max_length=50, blank=True)
+    browser = models.CharField(max_length=100, blank=True)
+    os = models.CharField(max_length=100, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+
+    is_active = models.BooleanField(default=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoke_reason = models.CharField(max_length=100, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['family']),
+        ]
+
+    def is_valid(self):
+        return self.is_active and timezone.now() < self.expires_at
+
+    def revoke(self, reason='manual'):
+        self.is_active = False
+        self.revoked_at = timezone.now()
+        self.revoke_reason = reason
+        self.save(update_fields=['is_active', 'revoked_at', 'revoke_reason'])
+
+
+class AuditLog(models.Model):
+    """Immutable audit trail for all authentication events."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='audit_logs'
+    )
+    user_email = models.EmailField(blank=True)
+    action = models.CharField(max_length=50, choices=AUDIT_ACTIONS)
+    provider = models.CharField(max_length=20, blank=True, choices=PROVIDER_CHOICES)
+
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    device_name = models.CharField(max_length=255, blank=True)
+    browser = models.CharField(max_length=100, blank=True)
+    os = models.CharField(max_length=100, blank=True)
+
+    success = models.BooleanField(default=True)
+    failure_reason = models.CharField(max_length=255, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    request_id = models.CharField(max_length=64, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['user', 'timestamp']),
+            models.Index(fields=['action', 'timestamp']),
+            models.Index(fields=['ip_address', 'timestamp']),
+        ]
+
+    def __str__(self):
+        return f"[{self.timestamp}] {self.action} – {self.user_email}"
+
+
+class BruteForceRecord(models.Model):
+    """Track failed attempts per key (IP/email) for brute-force lockout."""
+    key = models.CharField(max_length=255, unique=True, db_index=True)
+    endpoint = models.CharField(max_length=100, blank=True)
+    attempt_count = models.PositiveIntegerField(default=0)
+    first_attempt = models.DateTimeField(auto_now_add=True)
+    last_attempt = models.DateTimeField(auto_now=True)
+    locked_until = models.DateTimeField(null=True, blank=True)
+
+    def is_locked(self):
+        if self.locked_until and timezone.now() < self.locked_until:
+            return True
+        return False
+
+    def reset(self):
+        self.attempt_count = 0
+        self.locked_until = None
+        self.save(update_fields=['attempt_count', 'locked_until'])
+
+    class Meta:
+        indexes = [models.Index(fields=['key', 'endpoint'])]
+
+
 class Workspace(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)

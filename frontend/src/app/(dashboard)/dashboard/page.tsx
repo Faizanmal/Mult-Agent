@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, type Variants } from 'framer-motion';
@@ -24,10 +26,8 @@ import {
   Eye,
   Cpu,
   Database,
-  Grid3X3,
-  List,
 } from 'lucide-react';
-import apiClient from '@/lib/api';
+import apiClient, { type Agent } from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -74,13 +74,15 @@ const quickActions = [
   { title: 'Create Agent', icon: Bot, href: '/agents', gradient: 'from-indigo-500 to-purple-500' },
   { title: 'Build Workflow', icon: Workflow, href: '/workflows', gradient: 'from-blue-500 to-cyan-500' },
   { title: 'Start Chat', icon: MessageSquare, href: '/chat', gradient: 'from-green-500 to-emerald-500' },
-  { title: 'View Analytics', icon: BarChart3, href: '/analytics', gradient: 'from-orange-500 to-amber-500' },
+  { title: 'Connect Apps', icon: Database, href: '/integrations', gradient: 'from-orange-500 to-amber-500' },
 ];
+
+type DashboardAgent = Agent & { tasks?: number };
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [agents, setAgents] = useState<any[]>([]);
-  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [agents, setAgents] = useState<DashboardAgent[]>([]);
+  const [dashboardData, setDashboardData] = useState<Record<string, unknown> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = async () => {
@@ -90,8 +92,8 @@ export default function DashboardPage() {
         apiClient.getAgents(),
         apiClient.getAnalyticsDashboard()
       ]);
-      setAgents(agentsRes.results || agentsRes || []);
-      setDashboardData(dashboardRes);
+      setAgents((agentsRes.results || agentsRes || []) as DashboardAgent[]);
+      setDashboardData(dashboardRes as unknown as Record<string, unknown>);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -106,8 +108,8 @@ export default function DashboardPage() {
   const stats = dashboardData ? [
     {
       title: 'Active Agents',
-      value: (dashboardData.overview?.agents?.by_status?.active || 0).toString(),
-      change: `Total ${dashboardData.overview?.agents?.total || 0}`,
+      value: String((dashboardData.overview as Record<string, any>)?.agents?.by_status?.active || 0),
+      change: `Total ${(dashboardData.overview as Record<string, any>)?.agents?.total || 0}`,
       changeType: 'positive' as const,
       icon: Bot,
       gradient: 'from-indigo-500 to-purple-500',
@@ -115,8 +117,8 @@ export default function DashboardPage() {
     },
     {
       title: 'Tasks Completed',
-      value: (dashboardData.overview?.tasks?.by_status?.completed || 0).toString(),
-      change: `${((dashboardData.overview?.tasks?.success_rate || 0) * 100).toFixed(1)}%`,
+      value: String((dashboardData.overview as Record<string, any>)?.tasks?.by_status?.completed || 0),
+      change: `${(((dashboardData.overview as Record<string, any>)?.tasks?.success_rate || 0) * 100).toFixed(1)}%`,
       changeType: 'positive' as const,
       icon: CheckCircle2,
       gradient: 'from-green-500 to-emerald-500',
@@ -124,7 +126,7 @@ export default function DashboardPage() {
     },
     {
       title: 'Total Tasks',
-      value: (dashboardData.overview?.tasks?.total || 0).toString(),
+      value: String((dashboardData.overview as Record<string, any>)?.tasks?.total || 0),
       change: 'Active',
       changeType: 'positive' as const,
       icon: Zap,
@@ -133,7 +135,7 @@ export default function DashboardPage() {
     },
     {
       title: 'Total Messages',
-      value: (dashboardData.overview?.messages?.total || 0).toString(),
+      value: String((dashboardData.overview as Record<string, any>)?.messages?.total || 0),
       change: 'Activity',
       changeType: 'positive' as const,
       icon: Activity,
@@ -326,7 +328,7 @@ export default function DashboardPage() {
                             <div className="text-sm font-medium">{agent.tasks || 0} tasks</div>
                             <div className="text-xs text-muted-foreground">Processed</div>
                           </div>
-                          <Progress value={agent.performance_metrics?.success_rate || 100} className="w-20 h-2" />
+                          <Progress value={agent.performance_metrics?.accuracy ?? 100} className="w-20 h-2" />
                         </div>
 
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -357,9 +359,9 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {(dashboardData?.recent_activities || []).map((activity: any, index: number) => (
+                  {((dashboardData?.recent_activities as Array<Record<string, unknown>>) || []).map((activity, index: number) => (
                     <motion.div
-                      key={activity.id || index}
+                      key={String(activity.id ?? index)}
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.5 + index * 0.1 }}
@@ -373,16 +375,16 @@ export default function DashboardPage() {
                         activity.status === 'error' && "bg-red-500"
                       )} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{activity.action}</p>
-                        <p className="text-xs text-muted-foreground truncate">{activity.agent}</p>
+                        <p className="text-sm font-medium">{String(activity.action ?? '')}</p>
+                        <p className="text-xs text-muted-foreground truncate">{String(activity.agent ?? '')}</p>
                       </div>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Clock className="h-3 w-3" />
-                        {activity.time}
+                        {String(activity.time ?? '')}
                       </div>
                     </motion.div>
                   ))}
-                  {(!dashboardData?.recent_activities || dashboardData.recent_activities.length === 0) && (
+                  {(!dashboardData?.recent_activities || (dashboardData.recent_activities as unknown[]).length === 0) && (
                     <div className="text-center text-muted-foreground text-sm py-4">
                       No recent activity.
                     </div>

@@ -241,6 +241,7 @@ class WorkflowEngine:
             'parallel': self._execute_parallel,
             'data_transform': self._execute_data_transform,
             'api_call': self._execute_api_call,
+            'integration_call': self._execute_integration_call,
             'delay': self._execute_delay,
             'notification': self._execute_notification,
         }
@@ -403,6 +404,33 @@ class WorkflowEngine:
         
         return result
     
+    async def _execute_integration_call(self, step: WorkflowStep, context: Dict) -> Any:
+        """Execute a connected integration tool via IntegrationToolRegistry."""
+        from api_integrations.registry import IntegrationToolRegistry
+        from django.contrib.auth import get_user_model
+
+        config = step.config
+        tool_name = config.get('tool_name') or config.get('tool', '')
+        params = config.get('params', {})
+        if not tool_name and config.get('label'):
+            tool_name = config.get('tool_name', '')
+
+        user = None
+        user_id = context.get('user_id')
+        if user_id:
+            User = get_user_model()
+            user = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: User.objects.filter(id=user_id).first()
+            )
+
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: IntegrationToolRegistry.execute(tool_name, params, user=user),
+        )
+        if result.get('status') != 'success':
+            raise Exception(result.get('message', 'Integration call failed'))
+        return result
+
     async def _execute_delay(self, step: WorkflowStep, context: Dict) -> Any:
         """Execute delay/wait step."""
         
