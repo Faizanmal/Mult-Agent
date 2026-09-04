@@ -93,8 +93,11 @@ interface AuthContextType extends AuthState {
 // Constants
 // ---------------------------------------------------------------------------
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Prefer 127.0.0.1 over localhost — Django runserver binds IPv4 only;
+// Windows localhost→::1 can hang and leave the dashboard spinner stuck.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 const AUTH_BASE = `${API_BASE}/api/auth`;
+const AUTH_FETCH_TIMEOUT_MS = 20_000;
 
 const TOKEN_KEY = 'access_token';
 const REFRESH_KEY = 'refresh_token';
@@ -151,7 +154,17 @@ async function apiFetch(
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  return fetch(url, { ...options, headers });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AUTH_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      ...options,
+      headers,
+      signal: options.signal ?? controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -244,24 +257,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const init = async () => {
-      const access = getStoredToken();
-      if (!access) {
-        setState(prev => ({ ...prev, isLoading: false }));
-        return;
-      }
+      try {
+        const access = getStoredToken();
+        if (!access) {
+          setState(prev => ({ ...prev, isLoading: false }));
+          return;
+        }
 
-      if (isTokenExpired(access)) {
-        const ok = await refreshTokens();
-        if (!ok) setState(prev => ({ ...prev, isLoading: false }));
-        return;
-      }
+        if (isTokenExpired(access)) {
+          const ok = await refreshTokens();
+          if (!ok) setState(prev => ({ ...prev, isLoading: false }));
+          return;
+        }
 
-      const user = await fetchProfile(access);
-      if (user) {
-        setAuthenticated(user, access);
-      } else {
-        const ok = await refreshTokens();
-        if (!ok) setState(prev => ({ ...prev, isLoading: false }));
+        const user = await fetchProfile(access);
+        if (user) {
+          setAuthenticated(user, access);
+        } else {
+          const ok = await refreshTokens();
+          if (!ok) setState(prev => ({ ...prev, isLoading: false }));
+        }
+      } catch {
+        // Network hang/abort must never leave the app on an infinite spinner
+        setUnauthenticated();
       }
     };
 
@@ -309,6 +327,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await resp.json();
       storeTokens(data.access_token, data.refresh_token);
       setAuthenticated(data.user, data.access_token, data.expires_in);
+      try {
+        const { trackEvent } = await import('@/lib/analytics');
+        trackEvent('signup_completed', { email: userData.email });
+      } catch {
+        /* analytics optional */
+      }
       return true;
     } catch (err) {
       setState(prev => ({ ...prev, isLoading: false }));

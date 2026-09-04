@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from .models import Report, ReportTemplate, Widget
 from .serializers import ReportSerializer, ReportTemplateSerializer, WidgetSerializer
@@ -27,11 +30,6 @@ class ReportDetailView(generics.RetrieveUpdateDestroyAPIView):
     
     def get_queryset(self):
         return Report.objects.filter(user=self.request.user)
-
-
-from datetime import timedelta
-
-from django.utils import timezone
 
 
 @api_view(['POST'])

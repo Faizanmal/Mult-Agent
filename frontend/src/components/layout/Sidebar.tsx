@@ -28,6 +28,7 @@ import {
   LogOut,
   Search,
   Command,
+  Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,11 @@ const navigationItems: NavItem[] = [
     title: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
+  },
+  {
+    title: 'Workspace',
+    href: '/workspace',
+    icon: Layers,
   },
   {
     title: 'Agents',

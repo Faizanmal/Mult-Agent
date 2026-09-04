@@ -1,40 +1,59 @@
 from django.http import JsonResponse
 
+from .usage import get_message_usage, get_tier_limit, increment_message_usage
+
+
 class QuotaEnforcementMiddleware:
     """
-    Middleware to enforce usage quotas based on the Workspace's subscription tier.
+    Enforce monthly message quotas based on the workspace subscription tier.
+
+    Counts successful POSTs on the chat paths used by the product:
+    - /agents/api/messages/
+    - /agents/api/sessions/<id>/send_message/
     """
+
     def __init__(self, get_response):
         self.get_response = get_response
 
+    @staticmethod
+    def is_billable_message_request(request) -> bool:
+        if request.method != 'POST':
+            return False
+        path = request.path.rstrip('/')
+        if path == '/agents/api/messages':
+            return True
+        return (
+            path.startswith('/agents/api/sessions/')
+            and path.endswith('/send_message')
+        )
+
     def __call__(self, request):
-        # We only enforce quotas on API endpoints that consume resources (e.g., chat completions)
-        # Assuming the path might be /agents/api/sessions/<id>/send_message/
-        if request.path.startswith('/agents/api/sessions/') and request.method == 'POST':
-            # Check user workspace
-            if request.user.is_authenticated:
-                # Find the user's primary workspace (simplification)
-                membership = request.user.workspace_memberships.first()
-                if membership:
-                    workspace = membership.workspace
-                    tier = workspace.subscription_tier
-                    
-                    # Logic to count usage and check limit
-                    # For demonstration, we simply check a hardcoded limit.
-                    # In a real app, you would query redis or the database for actual usage.
-                    usage_count = 0 # Replace with actual cache/db lookup
-                    
-                    if tier == 'free' and usage_count >= 100:
-                        return JsonResponse({
-                            'error': 'Payment Required',
-                            'message': 'You have exceeded your free tier limits. Please upgrade to Pro.'
-                        }, status=402)
-                    
-                    elif tier == 'pro' and usage_count >= 10000:
-                        return JsonResponse({
-                            'error': 'Payment Required',
-                            'message': 'You have exceeded your Pro tier limits.'
-                        }, status=402)
+        if not self.is_billable_message_request(request):
+            return self.get_response(request)
+
+        if not getattr(request.user, 'is_authenticated', False):
+            return self.get_response(request)
+
+        membership = request.user.workspace_memberships.select_related('workspace').first()
+        if not membership:
+            return self.get_response(request)
+
+        workspace = membership.workspace
+        tier = workspace.subscription_tier or 'free'
+        limit = get_tier_limit(tier)
+        used = get_message_usage(workspace.id)
+
+        if used >= limit:
+            return JsonResponse({
+                'error': 'Payment Required',
+                'message': (
+                    f'You have used {used}/{limit} messages this month on the '
+                    f'{tier} plan. Upgrade to continue.'
+                ),
+                'usage': {'used': used, 'limit': limit, 'tier': tier},
+            }, status=402)
 
         response = self.get_response(request)
+        if 200 <= response.status_code < 300:
+            increment_message_usage(workspace.id)
         return response

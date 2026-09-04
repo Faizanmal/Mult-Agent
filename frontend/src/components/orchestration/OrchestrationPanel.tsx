@@ -69,12 +69,15 @@ function OrchestrationPanel({ onWorkflowChange, onAgentToggle }: OrchestrationPa
     setTimeout(() => setIsCoordinating(false), 3000);
   };
 
-  const getAgentLoadMetrics = () => {
+  const getAgentLoadMetrics = (agent: (typeof agents)[number]) => {
+    const perf = agent.performance
+    const busy = agent.status === 'active' || agent.status === 'processing'
+    // Prefer real agent performance fields; otherwise show zeros (no random fake load)
     return {
-      cpu: Math.floor(Math.random() * 100),
-      memory: Math.floor(Math.random() * 100),
-      tasks: Math.floor(Math.random() * 10)
-    };
+      cpu: busy && perf ? Math.round(perf.speed ?? 0) : 0,
+      memory: busy && perf ? Math.round(perf.accuracy ?? 0) : 0,
+      tasks: agent.status === 'processing' ? 1 : 0,
+    }
   };
 
   return (
@@ -257,7 +260,7 @@ function OrchestrationPanel({ onWorkflowChange, onAgentToggle }: OrchestrationPa
               const agent = agents.find(a => a.id === agentId);
               if (!agent) return null;
               
-              const metrics = getAgentLoadMetrics();
+              const metrics = getAgentLoadMetrics(agent);
               const IconComponent = agentTypeIcons[agent.type];
               
               return (

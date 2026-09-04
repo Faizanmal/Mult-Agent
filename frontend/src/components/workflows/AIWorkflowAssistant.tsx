@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,8 +27,10 @@ import {
   RefreshCw,
   MessageCircle,
   ThumbsUp,
-  ThumbsDown
+  ThumbsDown,
+  Loader2
 } from 'lucide-react'
+import apiClient from '@/lib/api'
 
 interface AIRecommendation {
   id: string
@@ -75,71 +77,69 @@ interface ChatMessage {
   }[]
 }
 
-const mockRecommendations: AIRecommendation[] = [
-  {
-    id: 'rec-1',
-    type: 'optimization',
-    title: 'Parallel Processing Opportunity',
-    description: 'Your data validation and transformation steps can be executed in parallel, reducing overall execution time by approximately 40%.',
-    impact: 'high',
-    effort: 'low',
-    confidence: 0.92,
-    reasoning: 'Analysis shows that validation and transformation steps have no dependencies and process the same input data independently.',
-    implementation: {
-      steps: [
-        'Create parallel execution branch after data fetch step',
-        'Configure validation step in first parallel branch',
-        'Configure transformation step in second parallel branch',
-        'Add merge step to combine results'
-      ],
-      estimatedTime: '15 minutes',
-      requiredSkills: ['Workflow Design', 'Parallel Processing']
-    },
-    tags: ['performance', 'parallel', 'optimization']
-  },
-  {
-    id: 'rec-2',
-    type: 'error-fix',
-    title: 'Missing Error Handling',
-    description: 'API call step lacks proper error handling and retry logic, which could cause workflow failures.',
-    impact: 'high',
-    effort: 'medium',
-    confidence: 0.88,
-    reasoning: 'Historical data shows 12% failure rate for external API calls without proper error handling.',
-    implementation: {
-      steps: [
-        'Add try-catch wrapper around API call',
-        'Implement exponential backoff retry policy',
-        'Add fallback data source configuration',
-        'Configure error notification system'
-      ],
-      estimatedTime: '30 minutes',
-      requiredSkills: ['Error Handling', 'API Integration']
-    },
-    tags: ['reliability', 'error-handling', 'api']
-  },
-  {
-    id: 'rec-3',
-    type: 'enhancement',
-    title: 'Smart Caching Layer',
-    description: 'Add intelligent caching to avoid redundant API calls and improve response times by 60%.',
-    impact: 'medium',
-    effort: 'medium',
-    confidence: 0.85,
-    reasoning: 'Pattern analysis indicates 35% of API calls request identical data within 1-hour windows.',
-    implementation: {
-      steps: [
-        'Configure Redis cache integration',
-        'Add cache key generation logic',
-        'Implement cache invalidation strategy',
-        'Add cache hit/miss monitoring'
-      ],
-      estimatedTime: '45 minutes',
-      requiredSkills: ['Caching', 'Redis', 'Performance Optimization']
-    },
-    tags: ['performance', 'caching', 'api-optimization']
+function mapInsightToRecommendation(raw: Record<string, unknown>, index: number): AIRecommendation {
+  const typeRaw = String(raw.type || raw.category || 'optimization')
+  let type: AIRecommendation['type'] = 'optimization'
+  if (typeRaw.includes('error') || typeRaw.includes('fix') || typeRaw === 'warning') {
+    type = 'error-fix'
+  } else if (typeRaw.includes('enhance') || typeRaw === 'positive') {
+    type = 'enhancement'
+  } else if (typeRaw.includes('best') || typeRaw.includes('practice')) {
+    type = 'best-practice'
   }
-]
+
+  const priority = String(raw.priority || raw.impact || raw.estimated_impact || 'medium').toLowerCase()
+  const impact: AIRecommendation['impact'] =
+    priority === 'high' || priority === 'critical' ? 'high' :
+    priority === 'low' ? 'low' : 'medium'
+
+  const actions = Array.isArray(raw.actions)
+    ? (raw.actions as string[])
+    : Array.isArray(raw.steps)
+      ? (raw.steps as string[])
+      : []
+
+  return {
+    id: String(raw.id || `rec-${index}`),
+    type,
+    title: String(raw.title || 'Insight'),
+    description: String(raw.description || ''),
+    impact,
+    effort: (['low', 'medium', 'high'].includes(String(raw.effort))
+      ? String(raw.effort) as AIRecommendation['effort']
+      : 'medium'),
+    confidence: typeof raw.confidence === 'number' ? raw.confidence : 0.75,
+    reasoning: String(raw.reasoning || raw.description || ''),
+    implementation: {
+      steps: actions.length > 0 ? actions : ['Review this insight in your analytics dashboard'],
+      estimatedTime: String(raw.estimated_time || '—'),
+      requiredSkills: Array.isArray(raw.required_skills) ? (raw.required_skills as string[]) : [],
+    },
+    tags: Array.isArray(raw.tags)
+      ? (raw.tags as string[])
+      : [String(raw.category || type)].filter(Boolean),
+  }
+}
+
+function extractGroqContent(response: Record<string, unknown>): string {
+  if (typeof response.content === 'string' && response.content.trim()) {
+    return response.content
+  }
+  if (typeof response.message === 'string' && response.message.trim()) {
+    return response.message
+  }
+  const choices = response.choices
+  if (Array.isArray(choices) && choices[0] && typeof choices[0] === 'object') {
+    const choice = choices[0] as Record<string, unknown>
+    const msg = choice.message as Record<string, unknown> | undefined
+    if (msg && typeof msg.content === 'string') return msg.content
+    if (typeof choice.text === 'string') return choice.text
+  }
+  if (response.data && typeof response.data === 'object') {
+    return extractGroqContent(response.data as Record<string, unknown>)
+  }
+  return 'Sorry, I could not generate a response. Please try again.'
+}
 
 interface AIWorkflowAssistantProps {
   currentWorkflow?: {
@@ -152,11 +152,11 @@ interface AIWorkflowAssistantProps {
 }
 
 const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
-  // currentWorkflow, // Reserved for future workflow analysis
+  currentWorkflow,
   onApplyRecommendation
-  // onGenerateWorkflow // Reserved for future workflow generation
 }) => {
-  const [recommendations] = useState(mockRecommendations)
+  const [recommendations, setRecommendations] = useState<AIRecommendation[]>([])
+  const [recsLoading, setRecsLoading] = useState(true)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: '1',
@@ -174,14 +174,47 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
   const [currentMessage, setCurrentMessage] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [activeTab, setActiveTab] = useState('recommendations')
+  const [generatorPrompt, setGeneratorPrompt] = useState('')
+  const [isGeneratingWorkflow, setIsGeneratingWorkflow] = useState(false)
+  const [generatorResult, setGeneratorResult] = useState<string | null>(null)
+
+  const loadRecommendations = useCallback(async () => {
+    setRecsLoading(true)
+    try {
+      const data = await apiClient.getAnalyticsInsights()
+      const rawList: Record<string, unknown>[] = []
+
+      if (data && typeof data === 'object') {
+        const obj = data as Record<string, unknown>
+        if (Array.isArray(obj.recommendations)) {
+          rawList.push(...(obj.recommendations as Record<string, unknown>[]))
+        }
+        if (Array.isArray(obj.insights)) {
+          rawList.push(...(obj.insights as Record<string, unknown>[]))
+        }
+      }
+
+      setRecommendations(rawList.map(mapInsightToRecommendation))
+    } catch (err) {
+      console.error('Failed to load insights', err)
+      setRecommendations([])
+    } finally {
+      setRecsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadRecommendations()
+  }, [loadRecommendations])
 
   const handleSendMessage = async () => {
     if (!currentMessage.trim() || isGenerating) return
 
+    const userText = currentMessage.trim()
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       type: 'user',
-      message: currentMessage,
+      message: userText,
       timestamp: Date.now()
     }
 
@@ -189,31 +222,63 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
     setCurrentMessage('')
     setIsGenerating(true)
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const systemPrompt = {
+        role: 'system',
+        content: currentWorkflow
+          ? `You are an AI Workflow Assistant. The user has a workflow with ${currentWorkflow.nodes?.length ?? 0} nodes and ${currentWorkflow.edges?.length ?? 0} edges. Help optimize, debug, and design workflows. Be concise and actionable.`
+          : 'You are an AI Workflow Assistant. Help users optimize, debug, and design workflows. Be concise and actionable.'
+      }
+
+      const history = chatMessages.slice(-6).map(m => ({
+        role: m.type === 'user' ? 'user' : 'assistant',
+        content: m.message,
+      }))
+
+      const response = await apiClient.chatWithGroq([
+        systemPrompt,
+        ...history,
+        { role: 'user', content: userText },
+      ])
+
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
-        message: getAIResponse(currentMessage),
+        message: extractGroqContent(response),
         timestamp: Date.now()
       }
-      
       setChatMessages(prev => [...prev, assistantMessage])
+    } catch (err) {
+      console.error('Groq chat failed', err)
+      setChatMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        message: 'I could not reach the AI service right now. Please check your connection and try again.',
+        timestamp: Date.now()
+      }])
+    } finally {
       setIsGenerating(false)
-    }, 2000)
+    }
   }
 
-  const getAIResponse = (query: string): string => {
-    const lowerQuery = query.toLowerCase()
-    
-    if (lowerQuery.includes('optimize') || lowerQuery.includes('improve')) {
-      return 'I\'ve analyzed your workflow and found several optimization opportunities. The most impactful one is implementing parallel processing for your validation and transformation steps, which could reduce execution time by 40%. Check the recommendations tab for detailed implementation steps.'
-    } else if (lowerQuery.includes('generate') || lowerQuery.includes('create')) {
-      return 'I can help you generate a workflow! Please describe what you want to accomplish, such as "process customer data and send email notifications" or "analyze sales data and generate reports". Be as specific as possible about your requirements.'
-    } else if (lowerQuery.includes('error') || lowerQuery.includes('fix')) {
-      return 'I\'ve identified some potential issues in your workflow. The most critical one is missing error handling in your API call step. This could lead to workflow failures when external services are unavailable. I recommend adding retry logic and fallback mechanisms.'
-    } else {
-      return 'I understand you want to improve your workflow. I can help with optimization, error fixing, generating new workflows from descriptions, and providing best practice recommendations. What specific area would you like to focus on?'
+  const handleGenerateWorkflow = async () => {
+    if (!generatorPrompt.trim() || isGeneratingWorkflow) return
+    setIsGeneratingWorkflow(true)
+    setGeneratorResult(null)
+    try {
+      const response = await apiClient.chatWithGroq([
+        {
+          role: 'system',
+          content: 'You are a workflow design assistant. Given a natural language description, propose a clear step-by-step workflow with named steps and brief configs. Use plain text with numbered steps.',
+        },
+        { role: 'user', content: generatorPrompt.trim() },
+      ])
+      setGeneratorResult(extractGroqContent(response))
+    } catch (err) {
+      console.error('Workflow generation failed', err)
+      setGeneratorResult('Failed to generate workflow. Please try again.')
+    } finally {
+      setIsGeneratingWorkflow(false)
     }
   }
 
@@ -276,17 +341,22 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
         <TabsContent value="recommendations" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">Smart Recommendations</h3>
-            <Button variant="outline" size="sm">
-              <RefreshCw className="w-4 h-4 mr-2" />
+            <Button variant="outline" size="sm" onClick={loadRecommendations} disabled={recsLoading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${recsLoading ? 'animate-spin' : ''}`} />
               Refresh Analysis
             </Button>
           </div>
 
-          {recommendations.length === 0 ? (
+          {recsLoading ? (
+            <Card className="p-8 text-center">
+              <Loader2 className="w-8 h-8 mx-auto mb-3 animate-spin text-muted-foreground" />
+              <p className="text-muted-foreground">Loading insights…</p>
+            </Card>
+          ) : recommendations.length === 0 ? (
             <Card className="p-8 text-center">
               <Bot className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
               <p className="text-muted-foreground">
-                Add some nodes to your workflow to get AI-powered recommendations
+                No recommendations yet. Use your agents and workflows to generate analytics insights, or ask in AI Chat.
               </p>
             </Card>
           ) : (
@@ -317,7 +387,6 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
                   </CardHeader>
                   
                   <CardContent className="space-y-4">
-                    {/* Confidence Score */}
                     <div className="flex items-center space-x-2">
                       <span className="text-sm text-muted-foreground">Confidence:</span>
                       <div className="flex-1 bg-gray-200 rounded-full h-2">
@@ -331,7 +400,6 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
                       </span>
                     </div>
                     
-                    {/* Reasoning */}
                     <div>
                       <h5 className="font-medium text-sm mb-1">AI Reasoning:</h5>
                       <p className="text-sm text-muted-foreground">
@@ -339,7 +407,6 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
                       </p>
                     </div>
                     
-                    {/* Implementation Preview */}
                     <div>
                       <h5 className="font-medium text-sm mb-2">Implementation:</h5>
                       <div className="bg-slate-50 p-3 rounded-lg">
@@ -355,14 +422,15 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
                           <div>
                             <span className="text-muted-foreground">Skills:</span>
                             <div className="font-medium">
-                              {recommendation.implementation.requiredSkills.join(', ')}
+                              {recommendation.implementation.requiredSkills.length > 0
+                                ? recommendation.implementation.requiredSkills.join(', ')
+                                : '—'}
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
                     
-                    {/* Tags */}
                     <div className="flex flex-wrap gap-1">
                       {recommendation.tags.map(tag => (
                         <Badge key={tag} variant="secondary" className="text-xs">
@@ -371,7 +439,6 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
                       ))}
                     </div>
                     
-                    {/* Actions */}
                     <div className="flex space-x-2 pt-2">
                       <Button 
                         size="sm" 
@@ -415,7 +482,7 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
                           ? 'bg-blue-500 text-white' 
                           : 'bg-slate-100 text-slate-900'
                       }`}>
-                        <div className="text-sm">{message.message}</div>
+                        <div className="text-sm whitespace-pre-wrap">{message.message}</div>
                         {message.suggestions && (
                           <div className="mt-3 space-y-1">
                             {message.suggestions.map((suggestion, index) => (
@@ -456,7 +523,7 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
                   placeholder="Ask me anything about your workflow..."
                   value={currentMessage}
                   onChange={(e) => setCurrentMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                   disabled={isGenerating}
                 />
                 <Button 
@@ -488,43 +555,35 @@ const AIWorkflowAssistant: React.FC<AIWorkflowAssistantProps> = ({
                   placeholder="Example: Create a workflow that fetches customer data from our API, validates the email addresses, sends personalized welcome emails, and logs the results to our database..."
                   rows={4}
                   className="resize-none"
+                  value={generatorPrompt}
+                  onChange={(e) => setGeneratorPrompt(e.target.value)}
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Industry/Domain:</label>
-                  <select className="w-full p-2 border rounded-md">
-                    <option>Select domain...</option>
-                    <option>E-commerce</option>
-                    <option>Healthcare</option>
-                    <option>Finance</option>
-                    <option>Education</option>
-                    <option>Manufacturing</option>
-                    <option>Other</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Complexity Level:</label>
-                  <select className="w-full p-2 border rounded-md">
-                    <option>Simple (3-5 steps)</option>
-                    <option>Moderate (6-10 steps)</option>
-                    <option>Complex (10+ steps)</option>
-                  </select>
-                </div>
-              </div>
-              
               <div className="flex space-x-2">
-                <Button className="flex-1">
-                  <Sparkles className="w-4 h-4 mr-2" />
+                <Button
+                  className="flex-1"
+                  onClick={handleGenerateWorkflow}
+                  disabled={isGeneratingWorkflow || !generatorPrompt.trim()}
+                >
+                  {isGeneratingWorkflow ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 mr-2" />
+                  )}
                   Generate Workflow
                 </Button>
-                <Button variant="outline">
+                <Button variant="outline" disabled>
                   <Target className="w-4 h-4 mr-2" />
                   Use Template
                 </Button>
               </div>
+
+              {generatorResult && (
+                <div className="text-sm bg-slate-50 p-4 rounded-lg whitespace-pre-wrap border">
+                  {generatorResult}
+                </div>
+              )}
               
               <div className="text-sm text-muted-foreground bg-blue-50 p-3 rounded-lg">
                 <div className="flex items-start space-x-2">

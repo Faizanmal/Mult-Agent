@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Settings,
@@ -53,25 +53,208 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import apiClient from '@/lib/api';
 
-// API Keys data
-const apiKeys = [
-  { id: '1', name: 'Production Key', key: 'sk-prod-xxx...xxx', created: '2024-01-15', lastUsed: '2 hours ago', status: 'active' },
-  { id: '2', name: 'Development Key', key: 'sk-dev-xxx...xxx', created: '2024-02-01', lastUsed: '5 min ago', status: 'active' },
-  { id: '3', name: 'Testing Key', key: 'sk-test-xxx...xxx', created: '2024-03-10', lastUsed: 'Never', status: 'inactive' },
-];
+type ApiKeyRecord = {
+  id: string;
+  name: string;
+  key: string;
+  created_at: string;
+  last_used?: string | null;
+  is_active?: boolean;
+};
+
+type BillingStatus = {
+  plan: string;
+  subscription_status?: string | null;
+  current_period_end?: string | null;
+  usage: {
+    used_tokens: number;
+    total_tokens: number | null;
+    percentage: number;
+  };
+};
+
+function normalizeApiKeys(payload: unknown): ApiKeyRecord[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload as ApiKeyRecord[];
+  if (typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>;
+    if (Array.isArray(obj.api_keys)) return obj.api_keys as ApiKeyRecord[];
+    if (Array.isArray(obj.results)) return obj.results as ApiKeyRecord[];
+  }
+  return [];
+}
+
+function maskKey(key: string): string {
+  if (!key || key.length < 12) return key || '••••';
+  return `${key.slice(0, 7)}...${key.slice(-4)}`;
+}
+
+function formatDate(value?: string | null): string {
+  if (!value) return 'Never';
+  try {
+    return new Date(value).toLocaleDateString();
+  } catch {
+    return value;
+  }
+}
 
 export default function SettingsPage() {
+  const { user, updateProfile, accessToken } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
   const [theme, setTheme] = useState('system');
   const [showKey, setShowKey] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [bio, setBio] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
+  const [apiKeysLoading, setApiKeysLoading] = useState(false);
+  const [apiKeysError, setApiKeysError] = useState<string | null>(null);
+  const [creatingKey, setCreatingKey] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [showCreateKey, setShowCreateKey] = useState(false);
+  const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setFirstName(user.first_name || '');
+    setLastName(user.last_name || '');
+    setEmail(user.email || '');
+  }, [user]);
+
+  const loadApiKeys = useCallback(async () => {
+    setApiKeysLoading(true);
+    setApiKeysError(null);
+    try {
+      const data = await apiClient.getAPIKeys();
+      setApiKeys(normalizeApiKeys(data));
+    } catch {
+      setApiKeysError('Could not load API keys.');
+      setApiKeys([]);
+    } finally {
+      setApiKeysLoading(false);
+    }
+  }, []);
+
+  const loadBilling = useCallback(async () => {
+    setBillingLoading(true);
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+      const token = accessToken || (typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null);
+      const res = await fetch(`${base}/api/billing/status/`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setBilling({
+        plan: data.plan || user?.subscription_tier || 'free',
+        subscription_status: data.subscription_status ?? null,
+        current_period_end: data.current_period_end ?? null,
+        usage: {
+          used_tokens: data.usage?.used_tokens ?? 0,
+          total_tokens: data.usage?.total_tokens ?? null,
+          percentage: data.usage?.percentage ?? 0,
+        },
+      });
+    } catch {
+      setBilling({
+        plan: user?.subscription_tier || 'free',
+        usage: { used_tokens: 0, total_tokens: null, percentage: 0 },
+      });
+    } finally {
+      setBillingLoading(false);
+    }
+  }, [accessToken, user?.subscription_tier]);
+
+  useEffect(() => {
+    if (activeTab === 'api-keys') {
+      loadApiKeys();
+    }
+    if (activeTab === 'billing') {
+      loadBilling();
+    }
+  }, [activeTab, loadApiKeys, loadBilling]);
+
+  const displayName =
+    user?.display_name ||
+    [firstName, lastName].filter(Boolean).join(' ') ||
+    user?.username ||
+    'User';
+  const initials = displayName
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'U';
 
   const copyToClipboard = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(id);
     setTimeout(() => setCopied(null), 2000);
   };
+
+  const handleSaveProfile = async () => {
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const ok = await updateProfile({
+        first_name: firstName,
+        last_name: lastName,
+      } as Parameters<typeof updateProfile>[0]);
+      setSaveMessage(ok ? 'Profile updated.' : 'Could not update profile.');
+    } catch {
+      setSaveMessage('Could not update profile.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateKey = async () => {
+    const name = newKeyName.trim() || 'API Key';
+    setCreatingKey(true);
+    try {
+      const created = await apiClient.createAPIKey(name);
+      setNewlyCreatedKey(created.key);
+      setNewKeyName('');
+      setShowCreateKey(false);
+      await loadApiKeys();
+    } catch {
+      setApiKeysError('Could not create API key.');
+    } finally {
+      setCreatingKey(false);
+    }
+  };
+
+  const handleDeleteKey = async (keyId: string) => {
+    try {
+      await apiClient.deleteAPIKey(keyId);
+      setApiKeys((prev) => prev.filter((k) => k.id !== keyId));
+    } catch {
+      setApiKeysError('Could not delete API key.');
+    }
+  };
+
+  const planLabel = (billing?.plan || user?.subscription_tier || 'free').replace(/^\w/, (c) => c.toUpperCase());
+  const usedTokens = billing?.usage.used_tokens ?? 0;
+  const totalTokens = billing?.usage.total_tokens;
+  const usagePct =
+    totalTokens && totalTokens > 0
+      ? Math.min(100, (usedTokens / totalTokens) * 100)
+      : billing?.usage.percentage ?? 0;
 
   return (
     <AppLayout>
@@ -141,8 +324,8 @@ export default function SettingsPage() {
                     {/* Avatar */}
                     <div className="flex items-center gap-6">
                       <Avatar className="h-20 w-20">
-                        <AvatarImage src="/avatar.png" />
-                        <AvatarFallback className="text-2xl">JD</AvatarFallback>
+                        <AvatarImage src={user?.avatar || undefined} />
+                        <AvatarFallback className="text-2xl">{initials}</AvatarFallback>
                       </Avatar>
                       <div className="space-y-2">
                         <Button variant="outline" size="sm">Change Avatar</Button>
@@ -156,27 +339,50 @@ export default function SettingsPage() {
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="firstName">First Name</Label>
-                        <Input id="firstName" defaultValue="John" />
+                        <Input
+                          id="firstName"
+                          value={firstName}
+                          onChange={(e) => setFirstName(e.target.value)}
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="lastName">Last Name</Label>
-                        <Input id="lastName" defaultValue="Doe" />
+                        <Input
+                          id="lastName"
+                          value={lastName}
+                          onChange={(e) => setLastName(e.target.value)}
+                        />
                       </div>
                       <div className="space-y-2 sm:col-span-2">
                         <Label htmlFor="email">Email</Label>
-                        <Input id="email" type="email" defaultValue="john@example.com" />
+                        <Input id="email" type="email" value={email} disabled />
                       </div>
                       <div className="space-y-2 sm:col-span-2">
                         <Label htmlFor="bio">Bio</Label>
-                        <Textarea id="bio" placeholder="Tell us about yourself..." />
+                        <Textarea
+                          id="bio"
+                          placeholder="Tell us about yourself..."
+                          value={bio}
+                          onChange={(e) => setBio(e.target.value)}
+                        />
                       </div>
                     </div>
                   </CardContent>
                   <CardFooter className="border-t pt-6 flex justify-end gap-3">
-                    <Button variant="outline">Cancel</Button>
-                    <Button className="gap-2">
+                    {saveMessage && (
+                      <p className="mr-auto text-sm text-muted-foreground self-center">{saveMessage}</p>
+                    )}
+                    <Button variant="outline" type="button" onClick={() => {
+                      setFirstName(user?.first_name || '');
+                      setLastName(user?.last_name || '');
+                      setBio('');
+                      setSaveMessage(null);
+                    }}>
+                      Cancel
+                    </Button>
+                    <Button className="gap-2" onClick={handleSaveProfile} disabled={saving}>
                       <Save className="h-4 w-4" />
-                      Save Changes
+                      {saving ? 'Saving...' : 'Save Changes'}
                     </Button>
                   </CardFooter>
                 </Card>
@@ -345,75 +551,116 @@ export default function SettingsPage() {
                       <CardTitle>API Keys</CardTitle>
                       <CardDescription>Manage your API keys for authentication</CardDescription>
                     </div>
-                    <Button className="gap-2">
+                    <Button className="gap-2" onClick={() => setShowCreateKey((v) => !v)}>
                       <Plus className="h-4 w-4" />
                       Create Key
                     </Button>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      {apiKeys.map((key) => (
-                        <div key={key.id} className="flex items-center gap-4 p-4 rounded-xl bg-muted/50">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                            <Key className="h-5 w-5 text-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium flex items-center gap-2">
-                              {key.name}
-                              <Badge variant={key.status === 'active' ? 'default' : 'secondary'}>
-                                {key.status}
-                              </Badge>
-                            </p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <code className="text-sm text-muted-foreground font-mono">
-                                {showKey === key.id ? 'sk-full-key-xxxxx' : key.key}
-                              </code>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => setShowKey(showKey === key.id ? null : key.id)}
-                              >
-                                {showKey === key.id ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => copyToClipboard(key.id, key.key)}
-                              >
-                                {copied === key.id ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-                              </Button>
+                    {showCreateKey && (
+                      <div className="flex flex-col sm:flex-row gap-3 mb-6 p-4 rounded-xl border">
+                        <Input
+                          placeholder="Key name"
+                          value={newKeyName}
+                          onChange={(e) => setNewKeyName(e.target.value)}
+                        />
+                        <Button onClick={handleCreateKey} disabled={creatingKey}>
+                          {creatingKey ? 'Creating...' : 'Create'}
+                        </Button>
+                      </div>
+                    )}
+                    {newlyCreatedKey && (
+                      <div className="mb-4 p-3 rounded-lg bg-muted/50 text-sm">
+                        <p className="font-medium mb-1">New key created — copy it now:</p>
+                        <code className="font-mono break-all">{newlyCreatedKey}</code>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ml-2"
+                          onClick={() => copyToClipboard('new', newlyCreatedKey)}
+                        >
+                          {copied === 'new' ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                        </Button>
+                      </div>
+                    )}
+                    {apiKeysError && (
+                      <p className="text-sm text-destructive mb-4">{apiKeysError}</p>
+                    )}
+                    {apiKeysLoading ? (
+                      <p className="text-sm text-muted-foreground">Loading API keys...</p>
+                    ) : apiKeys.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No API keys yet. Create one to get started.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {apiKeys.map((key) => {
+                          const status = key.is_active === false ? 'inactive' : 'active';
+                          return (
+                            <div key={key.id} className="flex items-center gap-4 p-4 rounded-xl bg-muted/50">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                                <Key className="h-5 w-5 text-primary" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium flex items-center gap-2">
+                                  {key.name}
+                                  <Badge variant={status === 'active' ? 'default' : 'secondary'}>
+                                    {status}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <code className="text-sm text-muted-foreground font-mono">
+                                    {showKey === key.id ? key.key : maskKey(key.key)}
+                                  </code>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => setShowKey(showKey === key.id ? null : key.id)}
+                                  >
+                                    {showKey === key.id ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => copyToClipboard(key.id, key.key)}
+                                  >
+                                    {copied === key.id ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className="hidden sm:block text-right text-sm text-muted-foreground">
+                                <p>Created {formatDate(key.created_at)}</p>
+                                <p>Last used {formatDate(key.last_used)}</p>
+                              </div>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="text-destructive">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete API Key?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This action cannot be undone. Any applications using this key will lose access.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-destructive text-destructive-foreground"
+                                      onClick={() => handleDeleteKey(key.id)}
+                                    >
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
                             </div>
-                          </div>
-                          <div className="hidden sm:block text-right text-sm text-muted-foreground">
-                            <p>Created {key.created}</p>
-                            <p>Last used {key.lastUsed}</p>
-                          </div>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="icon" className="text-destructive">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete API Key?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This action cannot be undone. Any applications using this key will lose access.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction className="bg-destructive text-destructive-foreground">
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      ))}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </motion.div>
@@ -474,8 +721,17 @@ export default function SettingsPage() {
                           <Zap className="h-6 w-6 text-white" />
                         </div>
                         <div>
-                          <p className="text-lg font-bold">Pro Plan</p>
-                          <p className="text-sm text-muted-foreground">$49/month • Renews Jan 15, 2025</p>
+                          <p className="text-lg font-bold">
+                            {billingLoading ? 'Loading...' : `${planLabel} Plan`}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {billing?.subscription_status
+                              ? `Status: ${billing.subscription_status}`
+                              : 'No active Stripe subscription'}
+                            {billing?.current_period_end
+                              ? ` • Renews ${formatDate(billing.current_period_end)}`
+                              : ''}
+                          </p>
                         </div>
                       </div>
                       <Button variant="outline">Manage Plan</Button>
@@ -489,26 +745,25 @@ export default function SettingsPage() {
                     <CardDescription>Current billing period usage</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {[
-                      { label: 'API Calls', used: 75432, limit: 100000 },
-                      { label: 'Agents', used: 12, limit: 50 },
-                      { label: 'Storage', used: 2.4, limit: 10, unit: 'GB' },
-                    ].map((item) => (
-                      <div key={item.label}>
+                    {billingLoading ? (
+                      <p className="text-sm text-muted-foreground">Loading usage...</p>
+                    ) : (
+                      <div>
                         <div className="flex justify-between text-sm mb-2">
-                          <span>{item.label}</span>
+                          <span>Messages</span>
                           <span className="text-muted-foreground">
-                            {item.used.toLocaleString()}{item.unit ? item.unit : ''} / {item.limit.toLocaleString()}{item.unit ? item.unit : ''}
+                            {usedTokens.toLocaleString()}
+                            {totalTokens != null ? ` / ${totalTokens.toLocaleString()}` : ' / —'}
                           </span>
                         </div>
                         <div className="h-2 rounded-full bg-muted overflow-hidden">
-                          <div 
+                          <div
                             className="h-full bg-primary rounded-full transition-all"
-                            style={{ width: `${(item.used / item.limit) * 100}%` }}
+                            style={{ width: `${usagePct}%` }}
                           />
                         </div>
                       </div>
-                    ))}
+                    )}
                   </CardContent>
                 </Card>
               </motion.div>
@@ -533,21 +788,20 @@ export default function SettingsPage() {
                     </Button>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      {[
-                        { name: 'John Doe', email: 'john@example.com', role: 'Admin', avatar: 'JD' },
-                        { name: 'Jane Smith', email: 'jane@example.com', role: 'Member', avatar: 'JS' },
-                        { name: 'Bob Wilson', email: 'bob@example.com', role: 'Viewer', avatar: 'BW' },
-                      ].map((member) => (
-                        <div key={member.email} className="flex items-center gap-4 p-4 rounded-xl bg-muted/50">
+                    {!user ? (
+                      <p className="text-sm text-muted-foreground">No team members yet</p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/50">
                           <Avatar>
-                            <AvatarFallback>{member.avatar}</AvatarFallback>
+                            <AvatarImage src={user.avatar || undefined} />
+                            <AvatarFallback>{initials}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
-                            <p className="font-medium">{member.name}</p>
-                            <p className="text-sm text-muted-foreground">{member.email}</p>
+                            <p className="font-medium">{displayName}</p>
+                            <p className="text-sm text-muted-foreground">{user.email}</p>
                           </div>
-                          <Select defaultValue={member.role.toLowerCase()}>
+                          <Select defaultValue={(user.role === 'admin' ? 'admin' : 'member')}>
                             <SelectTrigger className="w-32">
                               <SelectValue />
                             </SelectTrigger>
@@ -557,12 +811,9 @@ export default function SettingsPage() {
                               <SelectItem value="viewer">Viewer</SelectItem>
                             </SelectContent>
                           </Select>
-                          <Button variant="ghost" size="icon" className="text-destructive">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </motion.div>

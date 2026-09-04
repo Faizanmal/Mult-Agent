@@ -297,8 +297,27 @@ export function errorMessage(error: unknown): string {
 
 export function axiosErrorDetail(error: unknown): string | undefined {
   if (typeof error === 'object' && error !== null && 'response' in error) {
-    const data = (error as { response?: { data?: { detail?: string; error?: string } } }).response?.data;
-    return data?.detail || data?.error;
+    const data = (error as {
+      response?: {
+        data?: {
+          detail?: string;
+          error?: string;
+          message?: string;
+        };
+      };
+    }).response?.data;
+    return data?.message || data?.detail || data?.error;
   }
   return undefined;
+}
+
+export function axiosErrorStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    return (error as { response?: { status?: number } }).response?.status;
+  }
+  return undefined;
+}
+
+export function isQuotaLimitError(error: unknown): boolean {
+  return axiosErrorStatus(error) === 402;
 }

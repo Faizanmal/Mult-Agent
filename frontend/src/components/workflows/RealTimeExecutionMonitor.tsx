@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Timer
 } from 'lucide-react'
+import apiClient from '@/lib/api'
 
 interface ExecutionStep {
   id: string
@@ -44,7 +45,7 @@ interface ExecutionStep {
 interface ExecutionSession {
   id: string
   workflowName: string
-  status: 'running' | 'completed' | 'failed' | 'paused' | 'cancelled'
+  status: 'running' | 'completed' | 'failed' | 'paused' | 'cancelled' | 'queued'
   startTime: number
   endTime?: number
   totalSteps: number
@@ -59,126 +60,200 @@ interface ExecutionSession {
 
 interface RealTimeExecutionMonitorProps {
   workflowId?: string
+  executionId?: string
   onPause?: () => void
   onResume?: () => void
   onStop?: () => void
 }
 
-const mockExecutionSession: ExecutionSession = {
-  id: 'exec-123',
-  workflowName: 'Data Processing Pipeline',
-  status: 'running',
-  startTime: Date.now() - 45000, // Started 45 seconds ago
-  totalSteps: 8,
-  completedSteps: 3,
-  overallProgress: 37.5,
-  estimatedTimeRemaining: 120000, // 2 minutes
-  throughput: 2.1, // steps per minute
-  errorCount: 0,
-  steps: [
-    {
-      id: 'step-1',
-      nodeId: 'fetch-data',
-      nodeName: 'Fetch Data Source',
-      status: 'completed',
-      startTime: Date.now() - 45000,
-      endTime: Date.now() - 40000,
-      duration: 5000,
-      progress: 100
-    },
-    {
-      id: 'step-2',
-      nodeId: 'validate-data',
-      nodeName: 'Validate Input',
-      status: 'completed',
-      startTime: Date.now() - 40000,
-      endTime: Date.now() - 35000,
-      duration: 5000,
-      progress: 100
-    },
-    {
-      id: 'step-3',
-      nodeId: 'transform-data',
-      nodeName: 'Transform Data',
-      status: 'completed',
-      startTime: Date.now() - 35000,
-      endTime: Date.now() - 20000,
-      duration: 15000,
-      progress: 100,
-      metrics: {
-        cpuUsage: 45,
-        memoryUsage: 256,
-        networkIO: 1024,
-        diskIO: 512
-      }
-    },
-    {
-      id: 'step-4',
-      nodeId: 'ai-analysis',
-      nodeName: 'AI Analysis',
-      status: 'running',
-      startTime: Date.now() - 20000,
-      progress: 65,
-      metrics: {
-        cpuUsage: 85,
-        memoryUsage: 512,
-        networkIO: 2048,
-        diskIO: 256
-      }
-    },
-    {
-      id: 'step-5',
-      nodeId: 'generate-insights',
-      nodeName: 'Generate Insights',
-      status: 'pending',
-      progress: 0
+function unwrapList(data: unknown): Record<string, unknown>[] {
+  if (Array.isArray(data)) return data as Record<string, unknown>[]
+  if (data && typeof data === 'object') {
+    const obj = data as Record<string, unknown>
+    if (Array.isArray(obj.results)) return obj.results as Record<string, unknown>[]
+    if (Array.isArray(obj.executions)) return obj.executions as Record<string, unknown>[]
+    if (obj.data !== undefined) return unwrapList(obj.data)
+  }
+  return []
+}
+
+function mapStatus(status: string): ExecutionSession['status'] {
+  switch (status) {
+    case 'running':
+    case 'completed':
+    case 'failed':
+    case 'paused':
+    case 'cancelled':
+    case 'queued':
+      return status
+    default:
+      return 'queued'
+  }
+}
+
+function mapStepStatus(status: string): ExecutionStep['status'] {
+  switch (status) {
+    case 'running':
+    case 'completed':
+    case 'failed':
+    case 'skipped':
+    case 'pending':
+      return status
+    case 'queued':
+      return 'pending'
+    case 'cancelled':
+      return 'failed'
+    default:
+      return 'pending'
+  }
+}
+
+function parseTime(value: unknown): number | undefined {
+  if (!value) return undefined
+  if (typeof value === 'number') return value
+  const t = Date.parse(String(value))
+  return Number.isNaN(t) ? undefined : t
+}
+
+function mapExecution(raw: Record<string, unknown>): ExecutionSession {
+  const status = mapStatus(String(raw.status || 'queued'))
+  const startTime = parseTime(raw.started_at) || parseTime(raw.created_at) || Date.now()
+  const endTime = parseTime(raw.completed_at)
+  const nodeResults = (raw.node_results && typeof raw.node_results === 'object'
+    ? raw.node_results
+    : {}) as Record<string, unknown>
+
+  const steps: ExecutionStep[] = Object.entries(nodeResults).map(([nodeId, result], index) => {
+    const r = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>
+    const stepStatus = mapStepStatus(String(r.status || (status === 'completed' ? 'completed' : status === 'failed' && index === Object.keys(nodeResults).length - 1 ? 'failed' : status === 'running' ? 'running' : 'pending')))
+    const stepStart = parseTime(r.started_at || r.start_time)
+    const stepEnd = parseTime(r.completed_at || r.end_time)
+    const progress =
+      stepStatus === 'completed' ? 100 :
+      stepStatus === 'running' ? Number(r.progress ?? 50) :
+      stepStatus === 'failed' ? Number(r.progress ?? 0) :
+      0
+
+    return {
+      id: String(r.id || `step-${nodeId}`),
+      nodeId,
+      nodeName: String(r.name || r.node_name || nodeId),
+      status: stepStatus,
+      startTime: stepStart,
+      endTime: stepEnd,
+      duration: typeof r.duration_ms === 'number' ? r.duration_ms : (stepStart && stepEnd ? stepEnd - stepStart : undefined),
+      progress,
+      output: r.output ?? r.result,
+      error: r.error ? String(r.error) : undefined,
+      metrics: r.metrics as ExecutionStep['metrics'],
     }
-  ]
+  })
+
+  // If no node_results, synthesize a single summary step from execution status
+  if (steps.length === 0) {
+    steps.push({
+      id: 'summary',
+      nodeId: 'workflow',
+      nodeName: String(raw.workflow_name || 'Workflow'),
+      status: status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : status === 'running' ? 'running' : 'pending',
+      startTime,
+      endTime,
+      duration: typeof raw.duration_ms === 'number' ? raw.duration_ms : undefined,
+      progress: status === 'completed' ? 100 : status === 'running' ? 50 : status === 'failed' ? 0 : 0,
+      error: raw.error_message ? String(raw.error_message) : undefined,
+    })
+  }
+
+  const completedSteps = steps.filter(s => s.status === 'completed').length
+  const totalSteps = steps.length
+  const overallProgress = totalSteps > 0
+    ? steps.reduce((sum, s) => sum + (s.progress ?? 0), 0) / totalSteps
+    : (status === 'completed' ? 100 : 0)
+
+  const durationMs = typeof raw.duration_ms === 'number'
+    ? raw.duration_ms
+    : (endTime ? endTime - startTime : Date.now() - startTime)
+  const throughput = durationMs > 0 ? (completedSteps / (durationMs / 60000)) : undefined
+
+  return {
+    id: String(raw.id || 'unknown'),
+    workflowName: String(raw.workflow_name || raw.workflow || 'Workflow'),
+    status,
+    startTime,
+    endTime,
+    totalSteps,
+    completedSteps,
+    steps,
+    overallProgress,
+    throughput,
+    errorCount: steps.filter(s => s.status === 'failed').length + (raw.error_message ? 1 : 0),
+  }
 }
 
 const RealTimeExecutionMonitor: React.FC<RealTimeExecutionMonitorProps> = ({
-  // workflowId, // Reserved for future use
+  workflowId,
+  executionId,
   onPause,
   onResume,
   onStop
 }) => {
-  const [execution, setExecution] = useState<ExecutionSession>(mockExecutionSession)
+  const [execution, setExecution] = useState<ExecutionSession | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
   const [autoScroll, setAutoScroll] = useState(true)
 
-  // Simulate real-time updates
+  const loadExecution = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
+    try {
+      const res = await apiClient.getWorkflowExecutions()
+      const list = unwrapList(res.data ?? res)
+
+      let match: Record<string, unknown> | undefined
+      if (executionId) {
+        match = list.find(e => String(e.id) === String(executionId))
+      } else if (workflowId) {
+        match = list.find(e =>
+          String(e.workflow) === String(workflowId) ||
+          String(e.workflow_id) === String(workflowId)
+        )
+      } else {
+        match = list[0]
+      }
+
+      if (match) {
+        setExecution(mapExecution(match))
+      } else {
+        setExecution(null)
+      }
+    } catch (err) {
+      console.error('Failed to load workflow executions', err)
+      if (!silent) {
+        setError('Failed to load execution data')
+        setExecution(null)
+      }
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [executionId, workflowId])
+
   useEffect(() => {
+    loadExecution()
+  }, [loadExecution])
+
+  // Poll while running/queued — refresh from API only (no fake progress)
+  useEffect(() => {
+    if (!execution || (execution.status !== 'running' && execution.status !== 'queued')) {
+      return
+    }
     const interval = setInterval(() => {
-      setExecution(prev => {
-        if (prev.status !== 'running') return prev
-
-        const runningStep = prev.steps.find(step => step.status === 'running')
-        if (!runningStep) return prev
-
-        // Update running step progress
-        const updatedSteps = prev.steps.map(step => {
-          if (step.id === runningStep.id && step.progress !== undefined && step.progress < 100) {
-            return { ...step, progress: Math.min(100, step.progress + Math.random() * 5) }
-          }
-          return step
-        })
-
-        // Update overall progress
-        const completedProgress = updatedSteps.reduce((sum, step) => {
-          return sum + (step.progress || 0)
-        }, 0) / prev.totalSteps
-
-        return {
-          ...prev,
-          steps: updatedSteps,
-          overallProgress: completedProgress,
-          estimatedTimeRemaining: Math.max(0, (prev.estimatedTimeRemaining || 0) - 1000)
-        }
-      })
-    }, 1000)
-
+      loadExecution(true)
+    }, 3000)
     return () => clearInterval(interval)
-  }, [])
+  }, [execution?.status, loadExecution])
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -196,7 +271,8 @@ const RealTimeExecutionMonitor: React.FC<RealTimeExecutionMonitorProps> = ({
       case 'running': return 'bg-blue-500'
       case 'completed': return 'bg-green-500'
       case 'failed': return 'bg-red-500'
-      case 'pending': return 'bg-gray-400'
+      case 'pending':
+      case 'queued': return 'bg-gray-400'
       case 'paused': return 'bg-yellow-500'
       default: return 'bg-gray-400'
     }
@@ -241,7 +317,33 @@ const RealTimeExecutionMonitor: React.FC<RealTimeExecutionMonitorProps> = ({
     })
   }
 
-  const currentRunningTime = Date.now() - execution.startTime
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin mb-3" />
+        <p>Loading execution…</p>
+      </div>
+    )
+  }
+
+  if (error || !execution) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          <Activity className="w-10 h-10 mx-auto mb-3 opacity-50" />
+          <p className="font-medium">{error || 'No executions found'}</p>
+          <p className="text-sm mt-1">
+            Run a workflow to see live execution progress here
+          </p>
+          <Button variant="outline" size="sm" className="mt-4" onClick={() => loadExecution()}>
+            Refresh
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const currentRunningTime = (execution.endTime || Date.now()) - execution.startTime
 
   return (
     <div className="space-y-6">
@@ -250,7 +352,7 @@ const RealTimeExecutionMonitor: React.FC<RealTimeExecutionMonitorProps> = ({
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className={`w-3 h-3 rounded-full ${getStatusColor(execution.status)} animate-pulse`} />
+              <div className={`w-3 h-3 rounded-full ${getStatusColor(execution.status)} ${execution.status === 'running' ? 'animate-pulse' : ''}`} />
               <div>
                 <CardTitle className="text-lg">{execution.workflowName}</CardTitle>
                 <div className="text-sm text-muted-foreground">
@@ -314,7 +416,7 @@ const RealTimeExecutionMonitor: React.FC<RealTimeExecutionMonitorProps> = ({
             <div className="flex items-center space-x-2">
               <TrendingUp className="w-4 h-4 text-purple-500" />
               <div>
-                <div className="font-medium">{execution.throughput?.toFixed(1)}/min</div>
+                <div className="font-medium">{execution.throughput != null ? `${execution.throughput.toFixed(1)}/min` : 'N/A'}</div>
                 <div className="text-muted-foreground">Throughput</div>
               </div>
             </div>

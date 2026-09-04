@@ -4,10 +4,27 @@ from django.conf import settings
 # Use a dummy key if not set in environment
 stripe.api_key = getattr(settings, 'STRIPE_SECRET_KEY', 'sk_test_dummy')
 
+
+def stripe_price_tiers():
+    """Return the configured Stripe Price ID to workspace tier mapping."""
+    prices = {
+        getattr(settings, 'STRIPE_PRICE_PRO', ''): 'pro',
+        getattr(settings, 'STRIPE_PRICE_ENTERPRISE', ''): 'enterprise',
+    }
+    return {price_id: tier for price_id, tier in prices.items() if price_id}
+
+
+def tier_for_price(price_id):
+    return stripe_price_tiers().get(price_id)
+
+
 def create_checkout_session(workspace, price_id, success_url, cancel_url):
     """
     Creates a Stripe Checkout Session for a given workspace to subscribe to a plan.
     """
+    if not tier_for_price(price_id):
+        raise ValueError('Unknown or unconfigured Stripe price')
+
     # Create or get Stripe Customer ID
     if not workspace.stripe_customer_id:
         customer = stripe.Customer.create(
@@ -16,11 +33,10 @@ def create_checkout_session(workspace, price_id, success_url, cancel_url):
             metadata={'workspace_id': str(workspace.id)}
         )
         workspace.stripe_customer_id = customer.id
-        workspace.save()
+        workspace.save(update_fields=['stripe_customer_id', 'updated_at'])
 
     session = stripe.checkout.Session.create(
         customer=workspace.stripe_customer_id,
-        payment_method_types=['card'],
         line_items=[{
             'price': price_id,
             'quantity': 1,
@@ -28,7 +44,11 @@ def create_checkout_session(workspace, price_id, success_url, cancel_url):
         mode='subscription',
         success_url=success_url,
         cancel_url=cancel_url,
-        metadata={'workspace_id': str(workspace.id)}
+        client_reference_id=str(workspace.id),
+        metadata={'workspace_id': str(workspace.id)},
+        subscription_data={
+            'metadata': {'workspace_id': str(workspace.id)},
+        },
     )
     return session.url
 

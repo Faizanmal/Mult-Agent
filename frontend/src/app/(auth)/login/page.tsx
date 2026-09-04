@@ -81,12 +81,19 @@ export default function LoginPage() {
     try {
       const ok = await login(data.email, data.password);
       if (!ok) {
-        setError('Login failed. Please check your credentials.');
+        setError('Invalid email or password. If you signed up with Google/GitHub, use that button instead.');
         return;
       }
       router.push('/dashboard');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Login failed. Please check your credentials.');
+      const msg = err instanceof Error ? err.message : '';
+      if (/network|fetch|failed to fetch/i.test(msg)) {
+        setError('Cannot reach the server. Confirm the backend is running and try again.');
+      } else if (/invalid|credential|password|email/i.test(msg)) {
+        setError(msg);
+      } else {
+        setError(msg || 'Login failed. Please check your credentials and try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -189,9 +196,9 @@ export default function LoginPage() {
             className="mt-12 flex gap-8"
           >
             {[
-              { value: '10M+', label: 'API Calls/Day' },
-              { value: '99.9%', label: 'Uptime' },
-              { value: '50ms', label: 'Avg Latency' },
+              { value: 'Beta', label: 'Launch Status' },
+              { value: 'Groq', label: 'Fast Inference' },
+              { value: 'Free', label: 'Starter Plan' },
             ].map((stat) => (
               <div key={stat.label}>
                 <div className="text-2xl font-bold">{stat.value}</div>

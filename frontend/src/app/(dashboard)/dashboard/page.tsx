@@ -35,6 +35,8 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { GettingStartedCard } from '@/components/onboarding/GettingStartedCard';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Animation variants
 const containerVariants: Variants = {
@@ -81,6 +83,7 @@ type DashboardAgent = Agent & { tasks?: number };
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [agents, setAgents] = useState<DashboardAgent[]>([]);
   const [dashboardData, setDashboardData] = useState<Record<string, unknown> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -175,7 +178,7 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
               <Sparkles className="h-8 w-8 text-primary" />
-              Welcome back, John
+              Welcome back{user?.first_name || user?.display_name || user?.username ? `, ${user.first_name || user.display_name || user.username}` : ''}
             </h1>
             <p className="text-muted-foreground mt-1">
               Here&apos;s what&apos;s happening with your AI agents today.
@@ -194,6 +197,13 @@ export default function DashboardPage() {
               New Agent
             </Button>
           </div>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <GettingStartedCard
+            hasAgents={agents.length > 0}
+            hasMessages={Number((dashboardData?.overview as Record<string, any>)?.messages?.total || 0) > 0}
+          />
         </motion.div>
 
         {/* Stats Grid */}

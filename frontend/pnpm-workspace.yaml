@@ -1,0 +1,11 @@
+packages:
+  - '.'
+
+allowBuilds:
+  '@swc/core': true
+  canvas: true
+  sharp: true
+  unrs-resolver: true
+
+overrides:
+  react-speech-kit: ^3.0.1

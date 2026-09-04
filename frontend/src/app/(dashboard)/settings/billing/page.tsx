@@ -15,8 +15,8 @@ export default function BillingSettingsPage() {
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [plan, setPlan] = useState('free');
   const [usagePercentage, setUsagePercentage] = useState(0);
-  const [usedTokens, setUsedTokens] = useState('0');
-  const [totalTokens, setTotalTokens] = useState('100,000');
+  const [usedMessages, setUsedMessages] = useState('0');
+  const [totalMessages, setTotalMessages] = useState('100');
   const [stripeConfigured, setStripeConfigured] = useState(false);
 
   useEffect(() => {
@@ -30,8 +30,9 @@ export default function BillingSettingsPage() {
         const data = await res.json();
         setPlan(data.plan || 'free');
         setUsagePercentage(data.usage?.percentage ?? 0);
-        setUsedTokens(Number(data.usage?.used_tokens ?? 0).toLocaleString());
-        setTotalTokens(Number(data.usage?.total_tokens ?? 100000).toLocaleString());
+        // Backend meters messages; fields are still named *_tokens for API compat
+        setUsedMessages(Number(data.usage?.used_tokens ?? data.usage?.used ?? 0).toLocaleString());
+        setTotalMessages(Number(data.usage?.total_tokens ?? data.usage?.limit ?? 100).toLocaleString());
         setStripeConfigured(!!data.stripe_configured);
       } catch {
         /* keep defaults */
@@ -43,6 +44,8 @@ export default function BillingSettingsPage() {
   const handleUpgrade = async (priceId: string) => {
     setIsUpgrading(true);
     try {
+      const { trackEvent } = await import('@/lib/analytics');
+      trackEvent('upgrade_clicked', { source: 'billing_page', priceId });
       const token = localStorage.getItem('access_token');
       const response = await fetch(`${API_BASE}/api/billing/create-checkout-session/`, {
         method: 'POST',
@@ -78,7 +81,7 @@ export default function BillingSettingsPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">Billing & Usage</h1>
           <p className="text-muted-foreground mt-1">
-            Manage your workspace subscription and monitor API usage.
+            Manage your workspace subscription and monitor monthly message usage.
           </p>
         </div>
 
@@ -97,9 +100,9 @@ export default function BillingSettingsPage() {
             </CardHeader>
             <CardContent>
               <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="font-medium text-slate-700 dark:text-slate-300">API Requests & Tokens</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300">Messages this month</span>
                 <span className="font-semibold text-slate-900 dark:text-white">
-                  {usedTokens} <span className="text-muted-foreground font-normal">/ {totalTokens}</span>
+                  {usedMessages} <span className="text-muted-foreground font-normal">/ {totalMessages}</span>
                 </span>
               </div>
               <Progress value={usagePercentage} className={`h-3 ${usagePercentage > 80 ? 'bg-red-100 dark:bg-red-950/50 [&>div]:bg-red-500' : ''}`} />
@@ -155,7 +158,7 @@ export default function BillingSettingsPage() {
               <ul className="space-y-3 text-sm">
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> 1 Workspace</li>
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> Up to 3 Agents</li>
-                <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> 100k Tokens / month</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> 100 messages / month</li>
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> Community Support</li>
               </ul>
             </CardContent>
@@ -179,7 +182,7 @@ export default function BillingSettingsPage() {
               <ul className="space-y-3 text-sm">
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-blue-500" /> Unlimited Workspaces</li>
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-blue-500" /> Unlimited Agents</li>
-                <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-blue-500" /> 5M Tokens / month</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-blue-500" /> 10,000 messages / month</li>
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-blue-500" /> Priority Email Support</li>
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-blue-500" /> Advanced Plugins Access</li>
               </ul>
@@ -203,15 +206,15 @@ export default function BillingSettingsPage() {
             </CardHeader>
             <CardContent>
               <ul className="space-y-3 text-sm">
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> 1,000,000 messages / month</li>
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> Dedicated Groq Instances</li>
-                <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> Custom Model Fine-tuning</li>
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> SSO & Audit Logs</li>
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-slate-400" /> Dedicated Support</li>
               </ul>
             </CardContent>
             <CardFooter>
               <Button variant="outline" className="w-full gap-2" asChild>
-                <a href="mailto:sales@example.com">
+                <a href="mailto:support@multiagent.ai">
                   Contact Sales <ArrowUpRight className="h-4 w-4" />
                 </a>
               </Button>

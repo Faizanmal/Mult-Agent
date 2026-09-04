@@ -50,7 +50,7 @@ export function useWebSocket({
   const isMountedRef = useRef(true);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 15; // Increased from 10 to 15
+  const maxReconnectAttempts = 5;
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const urlRef = useRef(url); // Store the URL for reconnection
@@ -59,16 +59,11 @@ export function useWebSocket({
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimeoutRef.current || reconnectAttemptsRef.current >= maxReconnectAttempts) {
       if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-        console.error('Max reconnection attempts reached. Giving up.');
+        console.warn('WebSocket: max reconnect attempts reached; staying on HTTP fallback.');
         globalConnectionStatus = 'error';
         if (isMountedRef.current) {
           setConnectionStatus('error');
         }
-        toast({
-          title: "Connection Failed",
-          description: "Unable to establish WebSocket connection after multiple attempts.",
-          variant: "destructive",
-        });
       }
       return;
     }
@@ -280,12 +275,11 @@ export function useWebSocket({
         }
       };
 
-      globalWebSocket.onerror = (error) => {
-        console.error('WebSocket connection error', {
-          url: wsUrl,
-          readyState: globalWebSocket?.readyState,
-          error,
-        });
+      globalWebSocket.onerror = () => {
+        // Browser Event objects don't serialize; avoid console.error (Next.js overlays it).
+        console.warn(
+          `WebSocket unavailable at ${wsUrl}. Restart the backend with Daphne/ASGI (daphne must be in INSTALLED_APPS). Chat can still use HTTP.`
+        );
         globalConnectionStatus = 'error';
         stopHeartbeat();
         
@@ -295,9 +289,9 @@ export function useWebSocket({
         
         globalErrorHandlers.forEach(handler => {
           try {
-            handler(error);
+            handler(new Event('error'));
           } catch (handlerError) {
-            console.error('Error in error handler:', handlerError);
+            console.warn('Error in WebSocket error handler:', handlerError);
           }
         });
       };

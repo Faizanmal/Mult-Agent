@@ -448,6 +448,24 @@ class ApiClient {
             hasToken: !!this.getAuthToken(),
           });
         }
+
+        // Handle 402 payment/quota required — surface upgrade path
+        if (errorStatus === 402 && typeof window !== 'undefined') {
+          const usage = errorData?.usage || {};
+          window.dispatchEvent(
+            new CustomEvent('quota-limit-reached', {
+              detail: {
+                message:
+                  errorData?.message ||
+                  errorData?.detail ||
+                  'You have reached your monthly message limit. Upgrade to continue.',
+                used: usage.used,
+                limit: usage.limit,
+                tier: usage.tier,
+              },
+            })
+          );
+        }
         
         return Promise.reject(error);
       }
@@ -786,8 +804,27 @@ class ApiClient {
 
   // MCP Integration APIs
   public async getMCPTools(): Promise<{ tools: MCPTool[]; count: number }> {
+    // Prefer DB-backed tools (have UUIDs for execute); fall back to registry catalog
+    try {
+      const dbResponse = await this.client.get('/mcp/api/tools/');
+      const results = (dbResponse.data?.results ?? dbResponse.data) as MCPTool[];
+      if (Array.isArray(results) && results.length > 0) {
+        return { tools: results, count: results.length };
+      }
+    } catch {
+      // fall through to available_tools
+    }
     const response = await this.client.get('/mcp/api/tools/available_tools/');
-    return response.data;
+    const data = response.data as { tools?: MCPTool[]; count?: number };
+    const tools = (data.tools ?? []).map((tool, index) => ({
+      ...tool,
+      id: tool.id || tool.name || `tool-${index}`,
+      usage_count: tool.usage_count ?? 0,
+      success_rate: tool.success_rate ?? 1,
+      is_active: tool.is_active ?? true,
+      version: tool.version ?? '1.0.0',
+    }));
+    return { tools, count: data.count ?? tools.length };
   }
 
   public async executeMCPTool(toolId: string, parameters: Record<string, unknown>, sessionId?: string): Promise<{ execution_id: string; result: Record<string, unknown>; success: boolean }> {
@@ -1589,9 +1626,33 @@ class ApiClient {
     return { notifications: response.data.results || response.data };
   }
   
-  // Analytics Methods
+  // Analytics Methods (mounted under /analytics/api/)
+  public async getAnalyticsMetrics(params?: { time_range?: string; metric_type?: string }): Promise<AxiosResponse> {
+    return this.client.get('/analytics/api/metrics/', { params });
+  }
+
+  public async getAnalyticsMetricTrends(params?: { time_range?: string; metric_type?: string; workflow_id?: string }): Promise<AxiosResponse> {
+    return this.client.get('/analytics/api/metrics/trends/', { params });
+  }
+
+  public async getAnalyticsCosts(params?: { time_range?: string }): Promise<AxiosResponse> {
+    return this.client.get('/analytics/api/costs/', { params });
+  }
+
+  public async getAnalyticsCostSummary(params?: { time_range?: string }): Promise<AxiosResponse> {
+    return this.client.get('/analytics/api/costs/summary/', { params });
+  }
+
+  public async getAnalyticsOptimizations(): Promise<AxiosResponse> {
+    return this.client.get('/analytics/api/optimizations/');
+  }
+
+  public async getAnalyticsAnomalies(): Promise<AxiosResponse> {
+    return this.client.get('/analytics/api/anomalies/');
+  }
+
   public async getAnalyticsReports(): Promise<AxiosResponse> {
-    return this.client.get('/analytics/reports/');
+    return this.client.get('/analytics/api/predictions/');
   }
   
   public async generateAnalyticsReport(data: {
@@ -1599,25 +1660,24 @@ class ApiClient {
     start_date?: string;
     end_date?: string;
   }): Promise<AxiosResponse> {
-    return this.client.post('/analytics/reports/generate/', data);
+    return this.client.post('/analytics/api/predictions/', data);
   }
   
-  public async getPerformanceTrends(params?: { time_range?: string }): Promise<AxiosResponse> {
-    const queryString = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : '';
-    return this.client.get(`/analytics/performance-trends/${queryString}`);
+  public async getPerformanceTrends(params?: { time_range?: string; metric_type?: string }): Promise<AxiosResponse> {
+    return this.client.get('/analytics/api/metrics/trends/', { params });
   }
   
   public async getPredictiveInsights(): Promise<AxiosResponse> {
-    return this.client.get('/analytics/predictive-insights/');
+    return this.client.get('/analytics/api/predictions/');
   }
   
   public async generateReport(reportId: string): Promise<{ report_data: Record<string, unknown>; generated_at: string }> {
-    const response = await this.client.post(`/analytics/reports/${reportId}/generate/`);
+    const response = await this.client.post(`/analytics/api/predictions/${reportId}/generate/`);
     return { report_data: response.data, generated_at: new Date().toISOString() };
   }
   
   public async getAnalyticsPredictions(): Promise<AxiosResponse> {
-    return this.client.get('/analytics/predictions/');
+    return this.client.get('/analytics/api/predictions/');
   }
   
   // Workflow Builder Methods  
@@ -1811,6 +1871,12 @@ export const {
   getAnalyticsDashboard,
   getSystemPerformance,
   getAnalyticsInsights,
+  getAnalyticsMetrics,
+  getAnalyticsMetricTrends,
+  getAnalyticsCosts,
+  getAnalyticsCostSummary,
+  getAnalyticsOptimizations,
+  getAnalyticsAnomalies,
   // Automation methods
   createAutomationRule,
   getAutomationSuggestions,

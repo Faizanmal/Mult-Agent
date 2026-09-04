@@ -6,6 +6,8 @@ import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { cn } from '@/lib/utils';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { QuotaUpgradeDialog } from '@/components/billing/QuotaUpgradeDialog';
+import { ReportIssueDialog } from '@/components/support/ReportIssueDialog';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -122,6 +124,9 @@ export function AppLayout({ children }: AppLayoutProps) {
             </AnimatePresence>
           </main>
         </div>
+
+        <QuotaUpgradeDialog />
+        <ReportIssueDialog />
       </div>
     </ThemeProvider>
   );

@@ -16,6 +16,16 @@ from .twilio import TwilioProvider
 from .airtable import AirtableProvider
 from .calendar import GoogleCalendarProvider
 from .webhook import WebhookProvider
+from .whatsapp import WhatsAppProvider
+from .instagram import InstagramProvider
+from .google_drive import GoogleDriveProvider
+from .dropbox import DropboxProvider
+from .outlook import OutlookProvider
+from .microsoft_teams import MicrosoftTeamsProvider
+from .onedrive import OneDriveProvider
+from .stripe_provider import StripeProvider
+from .supabase import SupabaseProvider
+from .shopify import ShopifyProvider
 
 __all__ = [
     "IntegrationProvider",
@@ -36,4 +46,14 @@ __all__ = [
     "AirtableProvider",
     "GoogleCalendarProvider",
     "WebhookProvider",
+    "WhatsAppProvider",
+    "InstagramProvider",
+    "GoogleDriveProvider",
+    "DropboxProvider",
+    "OutlookProvider",
+    "MicrosoftTeamsProvider",
+    "OneDriveProvider",
+    "StripeProvider",
+    "SupabaseProvider",
+    "ShopifyProvider",
 ]

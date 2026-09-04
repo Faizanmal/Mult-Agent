@@ -1,6 +1,8 @@
 from rest_framework import serializers
+from django.db.models import Avg, Count, Q
 from .models import (
-    Agent, Session, Task, Message, AgentMemory, PerformanceMetric
+    Agent, Session, Task, Message, AgentMemory, PerformanceMetric,
+    TaskStatus, TaskExecution
 )
 
 class AgentSerializer(serializers.ModelSerializer):
@@ -206,23 +208,42 @@ class AgentPerformanceSerializer(serializers.Serializer):
     total_tasks = serializers.IntegerField()
     completed_tasks = serializers.IntegerField()
     failed_tasks = serializers.IntegerField()
-    average_response_time = serializers.FloatField()
-    success_rate = serializers.FloatField()
+    average_response_time = serializers.FloatField(allow_null=True)
+    success_rate = serializers.FloatField(allow_null=True)
     last_active = serializers.DateTimeField()
     status = serializers.CharField()
     
     def to_representation(self, instance):
-        """Calculate performance metrics from raw data"""
-        # This would be implemented with aggregation queries
-        # For now, returning placeholder structure
+        """Calculate performance metrics from related tasks/executions."""
+        task_stats = Task.objects.filter(assigned_agent=instance).aggregate(
+            total=Count('id'),
+            completed=Count('id', filter=Q(status=TaskStatus.COMPLETED)),
+            failed=Count('id', filter=Q(status=TaskStatus.FAILED)),
+            avg_duration=Avg('actual_duration'),
+        )
+        total = task_stats['total'] or 0
+        completed = task_stats['completed'] or 0
+        failed = task_stats['failed'] or 0
+
+        avg_response = task_stats['avg_duration']
+        if avg_response is None:
+            exec_avg = TaskExecution.objects.filter(agent=instance).aggregate(
+                avg_time=Avg('execution_time')
+            )['avg_time']
+            avg_response = exec_avg
+
+        success_rate = None
+        if total > 0:
+            success_rate = round((completed / total) * 100, 2)
+
         return {
             'agent_id': str(instance.id),
             'agent_name': instance.name,
-            'total_tasks': 0,
-            'completed_tasks': 0,
-            'failed_tasks': 0,
-            'average_response_time': 0.0,
-            'success_rate': 0.0,
+            'total_tasks': total,
+            'completed_tasks': completed,
+            'failed_tasks': failed,
+            'average_response_time': float(avg_response) if avg_response is not None else None,
+            'success_rate': success_rate,
             'last_active': instance.updated_at,
             'status': instance.status,
         }

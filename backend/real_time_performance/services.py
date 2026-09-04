@@ -18,7 +18,17 @@ class RedisCacheService:
     """
     
     def __init__(self):
-        """Initialize Redis connection"""
+        """Initialize Redis connection (fail-fast so missing Redis cannot stall auth)."""
+        self.enabled = False
+        self.client = None
+
+        # Local/dev without Redis: skip connect attempts entirely.
+        # Rate limiting / metrics degrade gracefully when disabled.
+        redis_required = os.getenv('REDIS_REQUIRED', '').lower() in ('1', 'true', 'yes')
+        if getattr(settings, 'DEBUG', False) and not redis_required:
+            logger.info("Redis skipped in DEBUG (set REDIS_REQUIRED=true to force connect)")
+            return
+
         try:
             import redis
             
@@ -27,8 +37,9 @@ class RedisCacheService:
             self.client = redis.from_url(
                 redis_url,
                 decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5
+                socket_connect_timeout=0.5,
+                socket_timeout=0.5,
+                retry_on_timeout=False,
             )
             
             # Test connection

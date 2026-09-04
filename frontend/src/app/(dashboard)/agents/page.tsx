@@ -25,6 +25,7 @@ import {
   List,
 } from 'lucide-react';
 import apiClient, { type Agent } from '@/lib/api';
+import { trackEvent, trackOnce } from '@/lib/analytics';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -134,6 +135,9 @@ export default function AgentsPage() {
       });
       
       await loadAgents();
+      const { trackEvent, trackOnce } = await import('@/lib/analytics');
+      trackEvent('agent_created', { type: newType });
+      trackOnce('first_agent_created', { type: newType });
       
       setIsCreateDialogOpen(false);
       setNewName('');
@@ -592,13 +596,31 @@ export default function AgentsPage() {
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted mb-4">
               <Bot className="h-10 w-10 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">No agents found</h3>
-            <p className="text-muted-foreground text-center mb-4">
-              Try adjusting your search or filters to find what you&apos;re looking for.
-            </p>
-            <Button onClick={() => { setSearchQuery(''); setFilterType('all'); setFilterStatus('all'); }}>
-              Clear Filters
-            </Button>
+            {agents.length === 0 ? (
+              <>
+                <h3 className="text-lg font-semibold mb-2">Create your first agent</h3>
+                <p className="text-muted-foreground text-center mb-4 max-w-md">
+                  Agents are the starting point. Create one, then send a message in Chat to reach first value.
+                </p>
+                <Button
+                  className="bg-gradient-to-r from-indigo-500 to-purple-500"
+                  onClick={() => setIsCreateDialogOpen(true)}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Agent
+                </Button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold mb-2">No agents found</h3>
+                <p className="text-muted-foreground text-center mb-4">
+                  Try adjusting your search or filters to find what you&apos;re looking for.
+                </p>
+                <Button onClick={() => { setSearchQuery(''); setFilterType('all'); setFilterStatus('all'); }}>
+                  Clear Filters
+                </Button>
+              </>
+            )}
           </motion.div>
         )}
       </motion.div>

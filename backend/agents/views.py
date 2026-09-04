@@ -8,9 +8,13 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.db.models import Q
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import json
+import logging
+import uuid
+import time
 from datetime import datetime, timedelta
 
 from .models import (
@@ -32,6 +36,58 @@ from .services.analytics_dashboard import AnalyticsDashboard
 
 # Get the custom user model
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+TRANSIENT_ERROR_MARKERS = (
+    'timeout',
+    'timed out',
+    'temporarily unavailable',
+    'connection reset',
+    'connection aborted',
+    'connection refused',
+    'network is unreachable',
+    'service unavailable',
+    'bad gateway',
+    'gateway timeout',
+    'rate limit',
+    '429',
+)
+
+
+def _is_transient_coordinator_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in TRANSIENT_ERROR_MARKERS)
+
+
+def _run_coordinator_with_auto_retry(
+    coordinator: AgentCoordinator,
+    message: Message,
+    max_retries: int = 1,
+    backoff_seconds: float = 0.75,
+):
+    """
+    Execute coordinator.process_message with transient-failure auto-retry.
+    Returns (result, attempts_used, auto_retried).
+    """
+    attempts_used = 0
+    for attempt_index in range(max_retries + 1):
+        attempts_used = attempt_index + 1
+        try:
+            return coordinator.process_message(message), attempts_used, attempt_index > 0
+        except Exception as exc:
+            is_last = attempt_index >= max_retries
+            if is_last or not _is_transient_coordinator_error(exc):
+                raise
+            sleep_for = backoff_seconds * attempts_used
+            logger.warning(
+                "Transient coordinator failure message_id=%s attempt=%s/%s backoff=%.2fs",
+                message.id,
+                attempts_used,
+                max_retries + 1,
+                sleep_for,
+            )
+            time.sleep(sleep_for)
+
 
 class AgentViewSet(viewsets.ModelViewSet):
     serializer_class = AgentSerializer
@@ -291,6 +347,11 @@ class SessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         content = request.data.get('content')
         message_type = request.data.get('type', 'text')
+        run_id = str(uuid.uuid4())
+        started_at = timezone.now()
+
+        if not content or not str(content).strip():
+            raise ValidationError({'content': 'Message content is required.'})
         
         # Get user for message
         user = request.user if request.user.is_authenticated else None
@@ -306,20 +367,83 @@ class SessionViewSet(viewsets.ModelViewSet):
             )
         
         # Create message
+        request_metadata = request.data.get('metadata', {})
+        if not isinstance(request_metadata, dict):
+            request_metadata = {'raw': request_metadata}
+
         message = Message.objects.create(
             session=session,
             sender=user,
             content=content,
             message_type=message_type,
-            metadata=request.data.get('metadata', {})
+            metadata={
+                **request_metadata,
+                'processing': {
+                    'run_id': run_id,
+                    'status': 'started',
+                    'source': 'session_send_message',
+                    'started_at': started_at.isoformat(),
+                }
+            }
         )
         
         # Process message with agents
         coordinator = AgentCoordinator(session)
-        coordinator.process_message(message)
+        try:
+            result, attempts_used, auto_retried = _run_coordinator_with_auto_retry(
+                coordinator=coordinator,
+                message=message,
+                max_retries=1,
+                backoff_seconds=0.75,
+            )
+            completed_at = timezone.now()
+            processing_ms = int((completed_at - started_at).total_seconds() * 1000)
+            message.metadata['processing'] = {
+                'run_id': run_id,
+                'status': 'completed',
+                'source': 'session_send_message',
+                'started_at': started_at.isoformat(),
+                'completed_at': completed_at.isoformat(),
+                'processing_ms': processing_ms,
+                'routing': result.get('routing', 'unknown'),
+                'tasks_created': result.get('tasks_created', 0),
+                'agents_involved': result.get('agents_involved', []),
+                'attempts_used': attempts_used,
+                'auto_retried': auto_retried,
+            }
+            message.save(update_fields=['metadata'])
+        except Exception as exc:
+            completed_at = timezone.now()
+            processing_ms = int((completed_at - started_at).total_seconds() * 1000)
+            logger.exception(
+                "Message processing failed run_id=%s session_id=%s message_id=%s",
+                run_id,
+                session.id,
+                message.id,
+            )
+            message.metadata['processing'] = {
+                'run_id': run_id,
+                'status': 'failed',
+                'source': 'session_send_message',
+                'started_at': started_at.isoformat(),
+                'completed_at': completed_at.isoformat(),
+                'processing_ms': processing_ms,
+                'error_code': (
+                    'COORDINATOR_EXECUTION_FAILED_TRANSIENT'
+                    if _is_transient_coordinator_error(exc)
+                    else 'COORDINATOR_EXECUTION_FAILED'
+                ),
+                'error_message': str(exc)[:300],
+                'attempts_used': 2 if _is_transient_coordinator_error(exc) else 1,
+                'auto_retried': _is_transient_coordinator_error(exc),
+            }
+            message.save(update_fields=['metadata'])
         
         serializer = MessageSerializer(message)
-        return Response(serializer.data)
+        return Response({
+            **serializer.data,
+            'processing': message.metadata.get('processing', {}),
+        })
     
     @action(detail=True, methods=['get'])
     def messages(self, request, pk=None):
@@ -423,7 +547,10 @@ class MessageViewSet(viewsets.ModelViewSet):
                 # Attach integration sub-agents for connected services
                 from api_integrations.models import APIIntegration
                 from api_integrations.services import ensure_integration_agents
-                for integ in APIIntegration.objects.filter(status='active')[:10]:
+                integ_qs = APIIntegration.objects.filter(status='active')
+                if getattr(self.request.user, 'is_authenticated', False):
+                    integ_qs = integ_qs.filter(created_by=self.request.user)
+                for integ in integ_qs[:10]:
                     for sub_agent in ensure_integration_agents(integ):
                         session.agents.add(sub_agent)
                 
@@ -441,6 +568,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                         session.agents.add(agent)
                     except Agent.DoesNotExist:
                         pass
+
+                # Attach integration sub-agents for this user's connected services
+                from api_integrations.models import APIIntegration
+                from api_integrations.services import ensure_integration_agents
+                for integ in APIIntegration.objects.filter(status='active', created_by=self.request.user)[:10]:
+                    for sub_agent in ensure_integration_agents(integ):
+                        session.agents.add(sub_agent)
                 
                 # Process message with agent response
                 self.agent_response = self.process_with_agent(message)
@@ -450,8 +584,17 @@ class MessageViewSet(viewsets.ModelViewSet):
             
     def process_with_agent(self, user_message):
         """Process user message and generate agent response"""
+        run_id = None
+        if isinstance(user_message.metadata, dict):
+            run_id = (user_message.metadata.get('processing') or {}).get('run_id')
+        run_id = run_id or str(uuid.uuid4())
+
         try:
-            print(f"🚀 Processing message with real AgentCoordinator: {user_message.content}")
+            logger.info(
+                "Processing message via AgentCoordinator run_id=%s message_id=%s",
+                run_id,
+                user_message.id,
+            )
             
             from .services.agent_coordinator import AgentCoordinator
             coordinator = AgentCoordinator(user_message.session)
@@ -469,6 +612,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 content=response_content,
                 message_type='text',
                 metadata={
+                    'run_id': run_id,
                     'response_to': str(user_message.id),
                     'via': 'http_api',
                     'is_agent_response': True,
@@ -476,21 +620,304 @@ class MessageViewSet(viewsets.ModelViewSet):
                 }
             )
             
-            print(f"✅ Created real agent response: ID={agent_response.id}")
+            logger.info(
+                "Created agent response run_id=%s response_id=%s",
+                run_id,
+                agent_response.id,
+            )
             return agent_response
             
         except Exception as e:
-            print(f"❌ Failed to create agent response: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception(
+                "Failed to create agent response run_id=%s message_id=%s",
+                run_id,
+                user_message.id,
+            )
             
             # Fallback message
             return Message.objects.create(
                 session=user_message.session,
                 sender=None,
                 content=f"Sorry, I encountered an internal error: {str(e)}",
-                message_type='text'
+                message_type='text',
+                metadata={
+                    'run_id': run_id,
+                    'response_to': str(user_message.id),
+                    'via': 'http_api',
+                    'is_agent_response': True,
+                    'error_code': 'AGENT_RESPONSE_FALLBACK',
+                    'error_message': str(e)[:300],
+                }
             )
+
+    @action(detail=False, methods=['get'])
+    def runs(self, request):
+        """
+        List message processing runs with optional filters:
+        - status: started|completed|failed
+        - run_id: exact run ID
+        - error_code: exact error code
+        - session_id: session UUID
+        - limit: max rows (default 50, max 200)
+        """
+        qs = self.get_queryset().exclude(metadata__processing__isnull=True)
+
+        status_filter = request.query_params.get('status')
+        run_id_filter = request.query_params.get('run_id')
+        error_code_filter = request.query_params.get('error_code')
+        session_id_filter = request.query_params.get('session_id')
+        limit_raw = request.query_params.get('limit', '50')
+
+        try:
+            limit = max(1, min(int(limit_raw), 200))
+        except (TypeError, ValueError):
+            limit = 50
+
+        if status_filter:
+            qs = qs.filter(metadata__processing__status=status_filter)
+        if run_id_filter:
+            qs = qs.filter(metadata__processing__run_id=run_id_filter)
+        if error_code_filter:
+            qs = qs.filter(metadata__processing__error_code=error_code_filter)
+        if session_id_filter:
+            qs = qs.filter(session_id=session_id_filter)
+
+        qs = qs.order_by('-created_at')[:limit]
+        rows = []
+        for message in qs:
+            processing = (message.metadata or {}).get('processing', {})
+            rows.append({
+                'message_id': str(message.id),
+                'session_id': str(message.session_id),
+                'run_id': processing.get('run_id'),
+                'status': processing.get('status', 'unknown'),
+                'routing': processing.get('routing'),
+                'tasks_created': processing.get('tasks_created'),
+                'agents_involved': processing.get('agents_involved', []),
+                'processing_ms': processing.get('processing_ms'),
+                'error_code': processing.get('error_code'),
+                'error_message': processing.get('error_message'),
+                'started_at': processing.get('started_at'),
+                'completed_at': processing.get('completed_at'),
+                'created_at': message.created_at.isoformat(),
+            })
+
+        status_counts = {}
+        for row in rows:
+            status_key = row.get('status', 'unknown')
+            status_counts[status_key] = status_counts.get(status_key, 0) + 1
+
+        return Response({
+            'count': len(rows),
+            'status_counts': status_counts,
+            'filters': {
+                'status': status_filter,
+                'run_id': run_id_filter,
+                'error_code': error_code_filter,
+                'session_id': session_id_filter,
+                'limit': limit,
+            },
+            'runs': rows,
+        })
+
+    @action(detail=False, methods=['get'])
+    def reliability_summary(self, request):
+        """
+        Reliability rollup for message processing runs.
+        Query params:
+        - hours: lookback window in hours (default 168 = 7 days)
+        """
+        hours_raw = request.query_params.get('hours', '168')
+        try:
+            hours = max(1, min(int(hours_raw), 24 * 90))
+        except (TypeError, ValueError):
+            hours = 168
+
+        since = timezone.now() - timedelta(hours=hours)
+        qs = self.get_queryset().filter(
+            created_at__gte=since
+        ).exclude(
+            metadata__processing__isnull=True
+        )
+
+        total_runs = 0
+        completed_runs = 0
+        failed_runs = 0
+        transient_failures = 0
+        auto_retried_runs = 0
+        auto_retry_recovered_runs = 0
+        attempts_total = 0
+        slow_runs_over_5s = 0
+
+        for message in qs:
+            processing = (message.metadata or {}).get('processing', {})
+            status = processing.get('status')
+            error_code = processing.get('error_code', '') or ''
+            auto_retried = bool(processing.get('auto_retried', False))
+            attempts_used = int(processing.get('attempts_used', 1) or 1)
+            processing_ms = int(processing.get('processing_ms', 0) or 0)
+
+            total_runs += 1
+            attempts_total += attempts_used
+
+            if processing_ms > 5000:
+                slow_runs_over_5s += 1
+
+            if status == 'completed':
+                completed_runs += 1
+                if auto_retried:
+                    auto_retry_recovered_runs += 1
+            elif status == 'failed':
+                failed_runs += 1
+
+            if auto_retried:
+                auto_retried_runs += 1
+            if 'TRANSIENT' in str(error_code).upper():
+                transient_failures += 1
+
+        success_rate = round((completed_runs / total_runs) * 100, 2) if total_runs else 0.0
+        failure_rate = round((failed_runs / total_runs) * 100, 2) if total_runs else 0.0
+        avg_attempts = round(attempts_total / total_runs, 2) if total_runs else 0.0
+        auto_retry_recovery_rate = (
+            round((auto_retry_recovered_runs / auto_retried_runs) * 100, 2)
+            if auto_retried_runs
+            else 0.0
+        )
+        slow_run_rate = round((slow_runs_over_5s / total_runs) * 100, 2) if total_runs else 0.0
+
+        return Response({
+            'window': {
+                'hours': hours,
+                'since': since.isoformat(),
+                'until': timezone.now().isoformat(),
+            },
+            'totals': {
+                'runs': total_runs,
+                'completed': completed_runs,
+                'failed': failed_runs,
+                'transient_failures': transient_failures,
+                'auto_retried_runs': auto_retried_runs,
+                'auto_retry_recovered_runs': auto_retry_recovered_runs,
+                'slow_runs_over_5s': slow_runs_over_5s,
+            },
+            'rates': {
+                'success_rate_pct': success_rate,
+                'failure_rate_pct': failure_rate,
+                'auto_retry_recovery_rate_pct': auto_retry_recovery_rate,
+                'slow_run_rate_pct': slow_run_rate,
+                'avg_attempts_per_run': avg_attempts,
+            },
+        })
+
+    @action(detail=False, methods=['post'])
+    def retry_failed(self, request):
+        """
+        Retry a failed message processing run.
+        Accepts either:
+        - message_id
+        - run_id
+        """
+        message_id = request.data.get('message_id')
+        run_id = request.data.get('run_id')
+
+        if not message_id and not run_id:
+            raise ValidationError({'detail': 'Provide either message_id or run_id.'})
+
+        target_qs = self.get_queryset().exclude(metadata__processing__isnull=True)
+        if message_id:
+            target_qs = target_qs.filter(id=message_id)
+        else:
+            target_qs = target_qs.filter(metadata__processing__run_id=run_id)
+
+        # Retry only original user messages, not generated agent replies
+        target_qs = target_qs.filter(
+            Q(metadata__is_agent_response__isnull=True) | Q(metadata__is_agent_response=False)
+        )
+        message = target_qs.order_by('-created_at').first()
+        if not message:
+            raise NotFound('Failed run message not found.')
+
+        processing = (message.metadata or {}).get('processing', {})
+        if processing.get('status') != 'failed':
+            raise ValidationError({'detail': 'Only runs with failed status can be retried.'})
+
+        new_run_id = str(uuid.uuid4())
+        retry_started_at = timezone.now()
+        metadata = message.metadata if isinstance(message.metadata, dict) else {}
+        metadata['processing'] = {
+            'run_id': new_run_id,
+            'status': 'started',
+            'source': 'message_retry_failed',
+            'started_at': retry_started_at.isoformat(),
+            'retry_of_run_id': processing.get('run_id'),
+            'retry_count': int(processing.get('retry_count', 0)) + 1,
+        }
+        message.metadata = metadata
+        message.save(update_fields=['metadata'])
+
+        try:
+            coordinator = AgentCoordinator(message.session)
+            result, attempts_used, auto_retried = _run_coordinator_with_auto_retry(
+                coordinator=coordinator,
+                message=message,
+                max_retries=1,
+                backoff_seconds=0.75,
+            )
+            retry_completed_at = timezone.now()
+            retry_ms = int((retry_completed_at - retry_started_at).total_seconds() * 1000)
+            message.metadata['processing'] = {
+                'run_id': new_run_id,
+                'status': 'completed',
+                'source': 'message_retry_failed',
+                'started_at': retry_started_at.isoformat(),
+                'completed_at': retry_completed_at.isoformat(),
+                'processing_ms': retry_ms,
+                'retry_of_run_id': processing.get('run_id'),
+                'retry_count': metadata['processing']['retry_count'],
+                'routing': result.get('routing', 'unknown'),
+                'tasks_created': result.get('tasks_created', 0),
+                'agents_involved': result.get('agents_involved', []),
+                'attempts_used': attempts_used,
+                'auto_retried': auto_retried,
+            }
+            message.save(update_fields=['metadata'])
+        except Exception as exc:
+            retry_completed_at = timezone.now()
+            retry_ms = int((retry_completed_at - retry_started_at).total_seconds() * 1000)
+            logger.exception(
+                "Retry failed run_id=%s message_id=%s",
+                new_run_id,
+                message.id,
+            )
+            message.metadata['processing'] = {
+                'run_id': new_run_id,
+                'status': 'failed',
+                'source': 'message_retry_failed',
+                'started_at': retry_started_at.isoformat(),
+                'completed_at': retry_completed_at.isoformat(),
+                'processing_ms': retry_ms,
+                'retry_of_run_id': processing.get('run_id'),
+                'retry_count': metadata['processing']['retry_count'],
+                'error_code': (
+                    'COORDINATOR_RETRY_FAILED_TRANSIENT'
+                    if _is_transient_coordinator_error(exc)
+                    else 'COORDINATOR_RETRY_FAILED'
+                ),
+                'error_message': str(exc)[:300],
+                'attempts_used': 2 if _is_transient_coordinator_error(exc) else 1,
+                'auto_retried': _is_transient_coordinator_error(exc),
+            }
+            message.save(update_fields=['metadata'])
+            raise ValidationError({'detail': 'Retry failed', 'run_id': new_run_id})
+
+        return Response({
+            'status': 'retried',
+            'message_id': str(message.id),
+            'session_id': str(message.session_id),
+            'run_id': new_run_id,
+            'retry_of_run_id': processing.get('run_id'),
+            'processing': message.metadata.get('processing', {}),
+        })
     
     @action(detail=False, methods=['post'])
     def process_multimodal(self, request):
@@ -543,26 +970,12 @@ class PerformanceViewSet(viewsets.ReadOnlyModelViewSet):
                 agent = Agent.objects.get(id=agent_id, owner=request.user)
             
             metrics = PerformanceMetric.objects.filter(agent=agent).order_by('-timestamp')[:100]
-            
-            # If no metrics exist, create mock data for development
-            if not metrics.exists() and settings.DEBUG:
-                mock_metrics = {
-                    'agent_id': str(agent.id),
-                    'agent_name': agent.name,
-                    'status': agent.status,
-                    'response_time_avg': 250,
-                    'success_rate': 95.5,
-                    'tasks_completed': 42,
-                    'uptime': '99.2%'
-                }
-                return Response(mock_metrics)
-            
             serializer = PerformanceMetricSerializer(metrics, many=True)
             return Response({
                 'agent_id': str(agent.id),
                 'agent_name': agent.name,
                 'status': agent.status,
-                'metrics': serializer.data
+                'metrics': serializer.data,
             })
             
         except Agent.DoesNotExist:

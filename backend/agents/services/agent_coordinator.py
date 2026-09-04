@@ -70,11 +70,38 @@ class AgentCoordinator:
                 return 'slack.read_history', {'channel': '', 'limit': 10}
             return 'slack.list_channels', {}
         if intent == 'github':
+            repo_match = re.search(
+                r'(?:github\.com/)?([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)',
+                content,
+                re.IGNORECASE,
+            )
+            repo_params = {}
+            if repo_match:
+                repo_params = {
+                    'owner': repo_match.group(1),
+                    'repo': repo_match.group(2).rstrip('.,;:'),
+                }
             if 'issue' in c:
-                return 'github.list_issues', {}
+                if any(word in c for word in ('create', 'open', 'new')):
+                    title_match = re.search(
+                        r'(?:title[d]?|called)\s+[\'"]([^\'"]+)[\'"]',
+                        content,
+                        re.IGNORECASE,
+                    )
+                    title = title_match.group(1) if title_match else ''
+                    return 'github.create_issue', {
+                        **repo_params,
+                        'title': title,
+                    }
+                return 'github.list_issues', repo_params
             if 'readme' in c:
-                return 'github.get_readme', {}
-            return 'github.list_repos', {'limit': 10}
+                return 'github.get_readme', repo_params
+            limit_match = re.search(
+                r'(\d+)\s+(?:github\s+)?(?:repos?|repositories)',
+                c,
+            )
+            limit = min(int(limit_match.group(1)), 30) if limit_match else 10
+            return 'github.list_repos', {'limit': limit}
         if intent == 'openai':
             return 'openai.chat', {'prompt': content}
         if intent == 'anthropic':
@@ -87,6 +114,81 @@ class AgentCoordinator:
             return 'discord.list_channels', {}
         if intent == 's3':
             return 's3.list_buckets', {}
+        if intent == 'telegram':
+            if any(w in c for w in ('send', 'message')):
+                return 'telegram.send_message', {}
+            return 'telegram.get_me', {}
+        if intent == 'whatsapp':
+            if any(w in c for w in ('send', 'message', 'text')):
+                return 'whatsapp.send_text', {}
+            return 'whatsapp.get_phone_number', {}
+        if intent == 'instagram':
+            if any(w in c for w in ('send', 'dm', 'message')):
+                return 'instagram.send_message', {}
+            if 'media' in c or 'post' in c:
+                return 'instagram.list_media', {'limit': 10}
+            return 'instagram.get_profile', {}
+        if intent == 'google_drive':
+            if 'search' in c:
+                return 'google_drive.search', {'query': content, 'page_size': 10}
+            return 'google_drive.list_files', {'page_size': 10}
+        if intent == 'dropbox':
+            if 'search' in c:
+                return 'dropbox.search', {'query': content}
+            return 'dropbox.list_folder', {'path': ''}
+        if intent == 'outlook':
+            if any(w in c for w in ('send', 'compose', 'write')):
+                return 'outlook.send_mail', {}
+            if 'search' in c:
+                return 'outlook.search', {'query': content, 'top': 10}
+            return 'outlook.list_messages', {'top': 10}
+        if intent == 'microsoft_teams':
+            if any(w in c for w in ('send', 'post', 'message')):
+                return 'microsoft_teams.send_channel_message', {}
+            return 'microsoft_teams.list_joined_teams', {}
+        if intent == 'onedrive':
+            if 'search' in c:
+                return 'onedrive.search', {'query': content}
+            return 'onedrive.list_files', {}
+        if intent == 'stripe':
+            if 'invoice' in c:
+                return 'stripe.list_invoices', {'limit': 10}
+            if 'subscription' in c:
+                return 'stripe.list_subscriptions', {'limit': 10}
+            if 'balance' in c:
+                return 'stripe.balance', {}
+            return 'stripe.list_customers', {'limit': 10}
+        if intent == 'supabase':
+            return 'supabase.list_rows', {'table': 'profiles', 'limit': 10}
+        if intent == 'shopify':
+            if 'product' in c:
+                return 'shopify.list_products', {'limit': 10}
+            if 'shop' in c and 'order' not in c:
+                return 'shopify.shop', {}
+            return 'shopify.list_orders', {'limit': 10, 'status': 'any'}
+        if intent == 'twilio':
+            if any(w in c for w in ('send', 'sms')):
+                return 'twilio.send_sms', {}
+            return 'twilio.list_messages', {'limit': 10}
+        if intent == 'trello':
+            return 'trello.list_boards', {}
+        if intent == 'linear':
+            return 'linear.list_issues', {}
+        if intent == 'hubspot':
+            return 'hubspot.list_contacts', {'limit': 10}
+        if intent == 'airtable':
+            return 'airtable.list_records', {}
+        if intent == 'calendar':
+            return 'calendar.list_events', {}
+        if intent == 'webhook':
+            return 'webhook.post', {}
+        # Fallback: first tool from the connected provider
+        for integration in IntegrationToolRegistry.list_integrations(user=self._session_user()):
+            provider = IntegrationToolRegistry.get_provider(integration)
+            if provider and provider.provider_key == intent:
+                tools = provider.tool_definitions()
+                if tools:
+                    return tools[0]['name'], {}
         return None, {}
 
     def _agent_for_provider(self, provider_key: str) -> str:

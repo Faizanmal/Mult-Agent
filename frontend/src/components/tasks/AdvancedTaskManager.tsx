@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -36,16 +36,35 @@ import {
   Star,
   Target,
   TrendingUp,
-  Zap
+  Zap,
+  Loader2,
+  Trash2,
 } from 'lucide-react'
+import {
+  getTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  type Task as ApiTask,
+} from '@/lib/api'
+
+type UiStatus = 'todo' | 'in-progress' | 'completed' | 'blocked'
+type UiPriority = 'low' | 'medium' | 'high' | 'urgent'
+type UiCategory = 'feature' | 'bug' | 'improvement' | 'research' | 'documentation'
+
+interface SubTask {
+  id: string
+  title: string
+  completed: boolean
+}
 
 interface Task {
   id: string
   title: string
   description: string
-  status: 'todo' | 'in-progress' | 'completed' | 'blocked'
-  priority: 'low' | 'medium' | 'high' | 'urgent'
-  category: 'feature' | 'bug' | 'improvement' | 'research' | 'documentation'
+  status: UiStatus
+  priority: UiPriority
+  category: UiCategory
   assignee?: string
   dueDate?: string
   createdAt: string
@@ -55,12 +74,6 @@ interface Task {
   estimatedHours: number
   actualHours?: number
   dependencies: string[]
-}
-
-interface SubTask {
-  id: string
-  title: string
-  completed: boolean
 }
 
 interface TaskStats {
@@ -73,102 +86,132 @@ interface TaskStats {
   avgCompletionTime: number
 }
 
-const mockTasks: Task[] = [
-  {
-    id: '1',
-    title: 'Enhanced AI Workflow Assistant',
-    description: 'Implement advanced AI-powered workflow recommendations and auto-generation capabilities',
-    status: 'in-progress',
-    priority: 'high',
-    category: 'feature',
-    assignee: 'John Doe',
-    dueDate: '2024-01-15',
-    createdAt: '2024-01-01',
-    updatedAt: '2024-01-10',
-    tags: ['ai', 'workflow', 'automation'],
-    estimatedHours: 40,
-    actualHours: 25,
-    dependencies: [],
-    subtasks: [
-      { id: '1-1', title: 'Design AI recommendation engine', completed: true },
-      { id: '1-2', title: 'Implement natural language workflow generation', completed: true },
-      { id: '1-3', title: 'Add workflow optimization suggestions', completed: false },
-      { id: '1-4', title: 'Create AI chat interface', completed: false }
-    ]
-  },
-  {
-    id: '2',
-    title: 'Real-time Execution Monitor',
-    description: 'Build comprehensive real-time monitoring for workflow execution with performance metrics',
-    status: 'completed',
-    priority: 'high',
-    category: 'feature',
-    assignee: 'Jane Smith',
-    dueDate: '2024-01-10',
-    createdAt: '2023-12-20',
-    updatedAt: '2024-01-08',
-    tags: ['monitoring', 'real-time', 'performance'],
-    estimatedHours: 30,
-    actualHours: 28,
-    dependencies: [],
-    subtasks: [
-      { id: '2-1', title: 'Design execution progress UI', completed: true },
-      { id: '2-2', title: 'Implement WebSocket connections', completed: true },
-      { id: '2-3', title: 'Add performance metrics tracking', completed: true },
-      { id: '2-4', title: 'Create execution history view', completed: true }
-    ]
-  },
-  {
-    id: '3',
-    title: 'Custom Node Components',
-    description: 'Develop advanced custom node components with dynamic ports and enhanced visualization',
-    status: 'todo',
-    priority: 'medium',
-    category: 'improvement',
-    assignee: 'Mike Johnson',
-    dueDate: '2024-01-20',
-    createdAt: '2024-01-05',
-    updatedAt: '2024-01-05',
-    tags: ['ui', 'components', 'visualization'],
-    estimatedHours: 25,
-    dependencies: ['1'],
-    subtasks: [
-      { id: '3-1', title: 'Design custom node architecture', completed: false },
-      { id: '3-2', title: 'Implement dynamic port system', completed: false },
-      { id: '3-3', title: 'Add node grouping functionality', completed: false }
-    ]
-  },
-  {
-    id: '4',
-    title: 'Performance Optimization',
-    description: 'Optimize application performance and reduce bundle size',
-    status: 'blocked',
-    priority: 'medium',
-    category: 'improvement',
-    assignee: 'Sarah Wilson',
-    dueDate: '2024-01-25',
-    createdAt: '2024-01-03',
-    updatedAt: '2024-01-09',
-    tags: ['performance', 'optimization', 'bundle-size'],
-    estimatedHours: 20,
-    actualHours: 5,
-    dependencies: ['1', '2'],
-    subtasks: [
-      { id: '4-1', title: 'Analyze bundle size', completed: true },
-      { id: '4-2', title: 'Implement code splitting', completed: false },
-      { id: '4-3', title: 'Optimize React Flow performance', completed: false }
-    ]
+function mapApiStatusToUi(status: string): UiStatus {
+  switch (status) {
+    case 'pending':
+      return 'todo'
+    case 'in_progress':
+      return 'in-progress'
+    case 'completed':
+      return 'completed'
+    case 'failed':
+    case 'cancelled':
+      return 'blocked'
+    case 'todo':
+    case 'in-progress':
+    case 'blocked':
+      return status
+    default:
+      return 'todo'
   }
-]
+}
+
+function mapUiStatusToApi(status: UiStatus): ApiTask['status'] {
+  switch (status) {
+    case 'todo':
+      return 'pending'
+    case 'in-progress':
+      return 'in_progress'
+    case 'completed':
+      return 'completed'
+    case 'blocked':
+      return 'failed'
+    default:
+      return 'pending'
+  }
+}
+
+function mapApiPriorityToUi(priority: unknown): UiPriority {
+  if (typeof priority === 'number') {
+    if (priority >= 4) return 'urgent'
+    if (priority >= 3) return 'high'
+    if (priority >= 2) return 'medium'
+    return 'low'
+  }
+  const p = String(priority || 'normal').toLowerCase()
+  if (p === 'urgent') return 'urgent'
+  if (p === 'high') return 'high'
+  if (p === 'low') return 'low'
+  if (p === 'medium' || p === 'normal') return 'medium'
+  return 'medium'
+}
+
+function mapUiPriorityToApi(priority: UiPriority): string {
+  switch (priority) {
+    case 'medium':
+      return 'normal'
+    default:
+      return priority
+  }
+}
+
+function mapApiTaskToUi(raw: ApiTask & Record<string, unknown>): Task {
+  const agent = raw.assigned_agent as unknown
+  let assignee: string | undefined
+  if (typeof agent === 'string') assignee = agent
+  else if (agent && typeof agent === 'object' && 'name' in agent) {
+    assignee = String((agent as { name: string }).name)
+  }
+
+  const subtasksRaw = Array.isArray(raw.subtasks) ? raw.subtasks : []
+  const subtasks: SubTask[] = subtasksRaw.map((st: Record<string, unknown>, i: number) => ({
+    id: String(st.id ?? `${raw.id}-${i}`),
+    title: String(st.title ?? 'Subtask'),
+    completed: st.status === 'completed' || st.completed === true,
+  }))
+
+  const durationSec =
+    typeof raw.duration === 'number'
+      ? raw.duration
+      : typeof raw.estimated_duration === 'number'
+        ? raw.estimated_duration
+        : undefined
+  const actualSec =
+    typeof raw.actual_duration === 'number' ? raw.actual_duration : undefined
+
+  const categoryRaw = String(raw.task_type || raw.category || 'feature').toLowerCase()
+  const category = (
+    ['feature', 'bug', 'improvement', 'research', 'documentation'].includes(categoryRaw)
+      ? categoryRaw
+      : 'feature'
+  ) as UiCategory
+
+  const tags =
+    Array.isArray(raw.tags)
+      ? (raw.tags as string[])
+      : Array.isArray((raw.requirements as { tags?: string[] })?.tags)
+        ? ((raw.requirements as { tags: string[] }).tags)
+        : []
+
+  return {
+    id: String(raw.id),
+    title: raw.title || 'Untitled',
+    description: raw.description || '',
+    status: mapApiStatusToUi(String(raw.status)),
+    priority: mapApiPriorityToUi(raw.priority),
+    category,
+    assignee,
+    dueDate: raw.completed_at ? undefined : undefined,
+    createdAt: String(raw.created_at || new Date().toISOString()),
+    updatedAt: String(raw.updated_at || raw.created_at || new Date().toISOString()),
+    tags,
+    subtasks,
+    estimatedHours: durationSec ? Math.max(1, Math.round(durationSec / 3600)) : 8,
+    actualHours: actualSec ? Math.round((actualSec / 3600) * 10) / 10 : undefined,
+    dependencies: [],
+  }
+}
 
 const AdvancedTaskManager: React.FC = () => {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks)
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [assigneeFilter, setAssigneeFilter] = useState<string>('all')
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-  // const [selectedTask, setSelectedTask] = useState<Task | null>(null) // Reserved for task details view
   const [newTask, setNewTask] = useState<Partial<Task>>({
     title: '',
     description: '',
@@ -177,6 +220,25 @@ const AdvancedTaskManager: React.FC = () => {
     estimatedHours: 8,
     tags: []
   })
+
+  const loadTasks = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const res = await getTasks()
+      const results = (res.results || []) as Array<ApiTask & Record<string, unknown>>
+      setTasks(results.map(mapApiTaskToUi))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load tasks')
+      setTasks([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadTasks()
+  }, [loadTasks])
 
   const filteredTasks = tasks.filter(task => {
     const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -190,14 +252,22 @@ const AdvancedTaskManager: React.FC = () => {
     return matchesSearch && matchesStatus && matchesPriority && matchesAssignee
   })
 
+  const assignees = Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean))) as string[]
+
   const taskStats: TaskStats = {
     total: tasks.length,
     completed: tasks.filter(t => t.status === 'completed').length,
     inProgress: tasks.filter(t => t.status === 'in-progress').length,
     todo: tasks.filter(t => t.status === 'todo').length,
     blocked: tasks.filter(t => t.status === 'blocked').length,
-    completionRate: (tasks.filter(t => t.status === 'completed').length / tasks.length) * 100,
-    avgCompletionTime: tasks.filter(t => t.actualHours).reduce((acc, t) => acc + (t.actualHours || 0), 0) / tasks.filter(t => t.actualHours).length || 0
+    completionRate: tasks.length
+      ? (tasks.filter(t => t.status === 'completed').length / tasks.length) * 100
+      : 0,
+    avgCompletionTime: (() => {
+      const withHours = tasks.filter(t => t.actualHours)
+      if (!withHours.length) return 0
+      return withHours.reduce((acc, t) => acc + (t.actualHours || 0), 0) / withHours.length
+    })()
   }
 
   const getPriorityColor = (priority: string) => {
@@ -231,57 +301,58 @@ const AdvancedTaskManager: React.FC = () => {
     }
   }
 
-  const handleCreateTask = useCallback(() => {
-    const task: Task = {
-      id: Date.now().toString(),
-      title: newTask.title || 'New Task',
-      description: newTask.description || '',
-      status: 'todo',
-      priority: newTask.priority || 'medium',
-      category: newTask.category || 'feature',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: newTask.tags || [],
-      subtasks: [],
-      estimatedHours: newTask.estimatedHours || 8,
-      dependencies: []
+  const handleCreateTask = useCallback(async () => {
+    try {
+      setSaving(true)
+      setError(null)
+      const created = await createTask({
+        title: newTask.title || 'New Task',
+        description: newTask.description || '',
+        status: 'pending',
+        priority: mapUiPriorityToApi(newTask.priority || 'medium') as unknown as number,
+      } as Partial<ApiTask>)
+      setTasks(prev => [...prev, mapApiTaskToUi(created as ApiTask & Record<string, unknown>)])
+      setNewTask({
+        title: '',
+        description: '',
+        priority: 'medium',
+        category: 'feature',
+        estimatedHours: 8,
+        tags: []
+      })
+      setShowCreateDialog(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create task')
+    } finally {
+      setSaving(false)
     }
-    
-    setTasks(prev => [...prev, task])
-    setNewTask({
-      title: '',
-      description: '',
-      priority: 'medium',
-      category: 'feature',
-      estimatedHours: 8,
-      tags: []
-    })
-    setShowCreateDialog(false)
   }, [newTask])
 
-  const handleUpdateTaskStatus = useCallback((taskId: string, newStatus: Task['status']) => {
-    setTasks(prev => prev.map(task => 
-      task.id === taskId 
+  const handleUpdateTaskStatus = useCallback(async (taskId: string, newStatus: Task['status']) => {
+    const previous = tasks
+    setTasks(prev => prev.map(task =>
+      task.id === taskId
         ? { ...task, status: newStatus, updatedAt: new Date().toISOString() }
         : task
     ))
-  }, [])
+    try {
+      await updateTask(taskId, { status: mapUiStatusToApi(newStatus) })
+    } catch (err) {
+      setTasks(previous)
+      setError(err instanceof Error ? err.message : 'Failed to update task')
+    }
+  }, [tasks])
 
-  // const handleToggleSubtask = useCallback((taskId: string, subtaskId: string) => {
-  //   setTasks(prev => prev.map(task => 
-  //     task.id === taskId 
-  //       ? {
-  //           ...task,
-  //           subtasks: task.subtasks.map(subtask =>
-  //             subtask.id === subtaskId
-  //               ? { ...subtask, completed: !subtask.completed }
-  //               : subtask
-  //           ),
-  //           updatedAt: new Date().toISOString()
-  //         }
-  //       : task
-  //   ))
-  // }, []) // Reserved for subtask management
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    const previous = tasks
+    setTasks(prev => prev.filter(t => t.id !== taskId))
+    try {
+      await deleteTask(taskId)
+    } catch (err) {
+      setTasks(previous)
+      setError(err instanceof Error ? err.message : 'Failed to delete task')
+    }
+  }, [tasks])
 
   const TaskCard: React.FC<{ task: Task }> = ({ task }) => {
     const completedSubtasks = task.subtasks.filter(st => st.completed).length
@@ -313,7 +384,6 @@ const AdvancedTaskManager: React.FC = () => {
             {task.description}
           </p>
           
-          {/* Progress */}
           {totalSubtasks > 0 && (
             <div className="space-y-1">
               <div className="flex justify-between text-sm">
@@ -324,7 +394,6 @@ const AdvancedTaskManager: React.FC = () => {
             </div>
           )}
           
-          {/* Task Info */}
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <div className="flex items-center space-x-3">
               {task.assignee && (
@@ -350,7 +419,6 @@ const AdvancedTaskManager: React.FC = () => {
             </Button>
           </div>
           
-          {/* Tags */}
           {task.tags.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {task.tags.slice(0, 3).map(tag => (
@@ -366,7 +434,6 @@ const AdvancedTaskManager: React.FC = () => {
             </div>
           )}
           
-          {/* Actions */}
           <div className="flex space-x-2">
             {task.status !== 'completed' && (
               <Button 
@@ -379,12 +446,16 @@ const AdvancedTaskManager: React.FC = () => {
                 {task.status === 'todo' ? 'Start' : 'Complete'}
               </Button>
             )}
-            <Button 
-              size="sm" 
-              variant="ghost"
-              // onClick={() => setSelectedTask(task)} // Reserved for task details
-            >
+            <Button size="sm" variant="ghost">
               <Edit className="w-4 h-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive"
+              onClick={() => handleDeleteTask(task.id)}
+            >
+              <Trash2 className="w-4 h-4" />
             </Button>
           </div>
         </CardContent>
@@ -394,7 +465,6 @@ const AdvancedTaskManager: React.FC = () => {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Task Management</h1>
@@ -409,7 +479,18 @@ const AdvancedTaskManager: React.FC = () => {
         </Button>
       </div>
 
-      {/* Stats Cards */}
+      {error && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center gap-3 p-4 text-sm text-destructive">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+            <Button variant="outline" size="sm" className="ml-auto" onClick={loadTasks}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         <Card>
           <CardContent className="p-4">
@@ -484,7 +565,6 @@ const AdvancedTaskManager: React.FC = () => {
         </Card>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center space-x-2">
           <Search className="w-4 h-4 text-muted-foreground" />
@@ -528,30 +608,34 @@ const AdvancedTaskManager: React.FC = () => {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Assignees</SelectItem>
-            <SelectItem value="John Doe">John Doe</SelectItem>
-            <SelectItem value="Jane Smith">Jane Smith</SelectItem>
-            <SelectItem value="Mike Johnson">Mike Johnson</SelectItem>
-            <SelectItem value="Sarah Wilson">Sarah Wilson</SelectItem>
+            {assignees.map(name => (
+              <SelectItem key={name} value={name}>{name}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
 
-      {/* Tasks Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredTasks.map(task => (
-          <TaskCard key={task.id} task={task} />
-        ))}
-        
-        {filteredTasks.length === 0 && (
-          <div className="col-span-full text-center py-12 text-muted-foreground">
-            <CheckSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p className="text-lg">No tasks found</p>
-            <p className="text-sm">Try adjusting your filters or create a new task</p>
-          </div>
-        )}
-      </div>
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-muted-foreground">
+          <Loader2 className="w-8 h-8 animate-spin mr-3" />
+          Loading tasks...
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredTasks.map(task => (
+            <TaskCard key={task.id} task={task} />
+          ))}
+          
+          {filteredTasks.length === 0 && (
+            <div className="col-span-full text-center py-12 text-muted-foreground">
+              <CheckSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p className="text-lg">No tasks found</p>
+              <p className="text-sm">Try adjusting your filters or create a new task</p>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Create Task Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -635,8 +719,15 @@ const AdvancedTaskManager: React.FC = () => {
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreateTask}>
-              Create Task
+            <Button onClick={handleCreateTask} disabled={saving}>
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                'Create Task'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

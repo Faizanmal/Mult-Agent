@@ -35,7 +35,15 @@ def fix_tables(apps, schema_editor):
         )
         if cursor.fetchone() is None:
             ModelCoordinationRun = apps.get_model('Multi_model_Intelligence', 'ModelCoordinationRun')
-            schema_editor.create_model(ModelCoordinationRun)
+            # ``apps`` is the pre-state for SeparateDatabaseAndState, where
+            # migration 0005 accidentally assigned this model the cross-modal
+            # table name. Create it under its corrected table name instead.
+            original_table = ModelCoordinationRun._meta.db_table
+            ModelCoordinationRun._meta.db_table = 'multimodel_coordination_runs'
+            try:
+                schema_editor.create_model(ModelCoordinationRun)
+            finally:
+                ModelCoordinationRun._meta.db_table = original_table
 
 
 class Migration(migrations.Migration):

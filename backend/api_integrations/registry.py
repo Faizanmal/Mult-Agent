@@ -2,24 +2,36 @@
 from typing import Any, Dict, List, Optional, Type
 
 from .models import APIIntegration
-from .providers.base import IntegrationProvider
-from .providers.gmail import GmailProvider
-from .providers.slack import SlackProvider
-from .providers.github import GitHubProvider
-from .providers.openai import OpenAIProvider
-from .providers.anthropic import AnthropicProvider
-from .providers.notion import NotionProvider
-from .providers.jira import JiraProvider
-from .providers.discord import DiscordProvider
-from .providers.s3 import S3Provider
-from .providers.telegram import TelegramProvider
-from .providers.trello import TrelloProvider
-from .providers.linear import LinearProvider
-from .providers.hubspot import HubSpotProvider
-from .providers.twilio import TwilioProvider
-from .providers.airtable import AirtableProvider
-from .providers.calendar import GoogleCalendarProvider
-from .providers.webhook import WebhookProvider
+from .providers import (
+    AirtableProvider,
+    AnthropicProvider,
+    DiscordProvider,
+    DropboxProvider,
+    GmailProvider,
+    GitHubProvider,
+    GoogleCalendarProvider,
+    GoogleDriveProvider,
+    HubSpotProvider,
+    InstagramProvider,
+    IntegrationProvider,
+    JiraProvider,
+    LinearProvider,
+    MicrosoftTeamsProvider,
+    NotionProvider,
+    OneDriveProvider,
+    OpenAIProvider,
+    OutlookProvider,
+    S3Provider,
+    ShopifyProvider,
+    SlackProvider,
+    StripeProvider,
+    SupabaseProvider,
+    TelegramProvider,
+    TrelloProvider,
+    TwilioProvider,
+    WebhookProvider,
+    WhatsAppProvider,
+)
 
 ALL_PROVIDERS: List[Type[IntegrationProvider]] = [
     GmailProvider,
@@ -39,6 +51,16 @@ ALL_PROVIDERS: List[Type[IntegrationProvider]] = [
     AirtableProvider,
     GoogleCalendarProvider,
     WebhookProvider,
+    WhatsAppProvider,
+    InstagramProvider,
+    GoogleDriveProvider,
+    DropboxProvider,
+    OutlookProvider,
+    MicrosoftTeamsProvider,
+    OneDriveProvider,
+    StripeProvider,
+    SupabaseProvider,
+    ShopifyProvider,
 ]
 
 
@@ -92,7 +114,6 @@ class IntegrationToolRegistry:
     @classmethod
     def execute(cls, tool_name: str, params: Dict[str, Any], user=None) -> Dict[str, Any]:
         """Execute a namespaced tool against the matching connected integration."""
-        # Legacy alias
         aliases = {"read_gmail": "gmail.read_inbox"}
         tool_name = aliases.get(tool_name, tool_name)
 
@@ -100,11 +121,13 @@ class IntegrationToolRegistry:
         if not provider_key:
             return {"status": "error", "message": f"Invalid tool name: {tool_name}"}
 
+        # Support compound keys like google_drive / microsoft_teams
         for integration in cls.list_integrations(user):
             provider = cls.get_provider(integration)
-            if not provider or provider.provider_key != provider_key:
+            if not provider:
                 continue
-            return provider.timed_execute(integration, tool_name, params)
+            if tool_name.startswith(provider.provider_key + "."):
+                return provider.timed_execute(integration, tool_name, params)
 
         return {
             "status": "error",
@@ -122,10 +145,30 @@ class IntegrationToolRegistry:
     def detect_intent(cls, content: str) -> Optional[str]:
         """Map user message to likely provider key."""
         c = content.lower()
-        if any(w in c for w in ("email", "gmail", "inbox", "mail")):
+        if any(w in c for w in ("email", "gmail", "inbox", "mail")) and "outlook" not in c:
             return "gmail"
+        if "outlook" in c:
+            return "outlook"
+        if "google drive" in c or ("drive" in c and "onedrive" not in c):
+            return "google_drive"
+        if "dropbox" in c:
+            return "dropbox"
+        if "onedrive" in c or "one drive" in c:
+            return "onedrive"
+        if "teams" in c and ("microsoft" in c or "ms " in c or "channel" in c):
+            return "microsoft_teams"
         if "telegram" in c:
             return "telegram"
+        if "whatsapp" in c or "wa message" in c:
+            return "whatsapp"
+        if "instagram" in c or "insta" in c:
+            return "instagram"
+        if "shopify" in c or "store order" in c:
+            return "shopify"
+        if "supabase" in c or "postgres" in c:
+            return "supabase"
+        if "stripe" in c or "invoice" in c or "subscription" in c:
+            return "stripe"
         if "slack" in c:
             return "slack"
         if "discord" in c:

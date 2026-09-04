@@ -30,6 +30,7 @@ import {
   Copy
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import apiClient from '@/lib/api'
 
 interface WorkflowVersion {
   id: string
@@ -83,92 +84,14 @@ interface SmartVersionControlProps {
 }
 
 const SmartVersionControl: React.FC<SmartVersionControlProps> = ({
-  currentVersion = 'v1.2.3',
+  currentVersion = 'v1.0.0',
   onVersionChange,
-  onBranchSwitch
+  onBranchSwitch,
+  workflowId
 }) => {
-  const [versions, setVersions] = useState<WorkflowVersion[]>([
-    {
-      id: 'v1.2.3',
-      version: '1.2.3',
-      branch: 'main',
-      author: 'Alice Johnson',
-      timestamp: '2 hours ago',
-      message: 'Added error handling to API calls and optimized parallel execution',
-      changes: { added: 3, modified: 5, removed: 1 },
-      status: 'published',
-      tags: ['stable', 'production'],
-      performance: { executionTime: 45.2, successRate: 96.8, nodeCount: 12 },
-      isPrimary: true
-    },
-    {
-      id: 'v1.2.2',
-      version: '1.2.2',
-      branch: 'main',
-      author: 'Bob Smith',
-      timestamp: '1 day ago',
-      message: 'Fixed database connection timeout issues',
-      changes: { added: 1, modified: 2, removed: 0 },
-      status: 'published',
-      tags: ['hotfix'],
-      performance: { executionTime: 52.1, successRate: 94.2, nodeCount: 11 }
-    },
-    {
-      id: 'v1.2.1-beta',
-      version: '1.2.1-beta',
-      branch: 'feature/ai-optimization',
-      author: 'Carol Davis',
-      timestamp: '3 days ago',
-      message: 'Experimental AI-powered workflow optimization',
-      changes: { added: 5, modified: 8, removed: 2 },
-      status: 'draft',
-      tags: ['experimental', 'ai'],
-      performance: { executionTime: 38.7, successRate: 98.1, nodeCount: 14 }
-    },
-    {
-      id: 'v1.2.0',
-      version: '1.2.0',
-      branch: 'main',
-      author: 'Alice Johnson',
-      timestamp: '1 week ago',
-      message: 'Major update: Added multi-agent coordination and real-time monitoring',
-      changes: { added: 12, modified: 15, removed: 3 },
-      status: 'published',
-      tags: ['major', 'feature'],
-      performance: { executionTime: 48.3, successRate: 95.4, nodeCount: 18 }
-    }
-  ])
-
-  const [branches, setBranches] = useState<Branch[]>([
-    {
-      name: 'main',
-      isActive: true,
-      lastCommit: '2 hours ago',
-      author: 'Alice Johnson',
-      ahead: 0,
-      behind: 0,
-      status: 'active'
-    },
-    {
-      name: 'feature/ai-optimization',
-      isActive: false,
-      lastCommit: '3 days ago',
-      author: 'Carol Davis',
-      ahead: 5,
-      behind: 2,
-      status: 'active'
-    },
-    {
-      name: 'hotfix/database-timeout',
-      isActive: false,
-      lastCommit: '1 week ago',
-      author: 'Bob Smith',
-      ahead: 0,
-      behind: 8,
-      status: 'merged'
-    }
-  ])
-
+  const [versions, setVersions] = useState<WorkflowVersion[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [loading, setLoading] = useState(Boolean(workflowId))
   const [selectedVersions, setSelectedVersions] = useState<string[]>([])
   const [comparisonData, setComparisonData] = useState<ComparisonData | null>(null)
   const [newBranchName, setNewBranchName] = useState('')
@@ -178,39 +101,124 @@ const SmartVersionControl: React.FC<SmartVersionControlProps> = ({
 
   const { toast } = useToast()
 
+  useEffect(() => {
+    let cancelled = false
+
+    const loadVersions = async () => {
+      if (!workflowId) {
+        setVersions([])
+        setBranches([])
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      try {
+        const res = await apiClient.getWorkflowVersions(workflowId)
+        const rawList = Array.isArray(res?.versions)
+          ? res.versions
+          : Array.isArray((res as unknown as { results?: unknown[] })?.results)
+            ? (res as unknown as { results: unknown[] }).results
+            : []
+
+        const mapped: WorkflowVersion[] = rawList.map((v, i) => {
+          const raw = v as unknown as Record<string, unknown>
+          const changes = (raw.changes && typeof raw.changes === 'object'
+            ? raw.changes
+            : { added: 0, modified: 0, removed: 0 }) as WorkflowVersion['changes']
+          const nodesSnap = Array.isArray(raw.nodes_snapshot) ? raw.nodes_snapshot : []
+          return {
+            id: String(raw.id ?? `v-${i}`),
+            version: String(raw.version || raw.version_number || `1.${i}.0`),
+            branch: String(raw.branch || 'main'),
+            author: String(raw.author || raw.created_by_username || 'Unknown'),
+            timestamp: String(raw.timestamp || raw.created_at || ''),
+            message: String(raw.message || raw.change_description || 'Version snapshot'),
+            changes: {
+              added: Number(changes.added ?? 0),
+              modified: Number(changes.modified ?? 0),
+              removed: Number(changes.removed ?? 0),
+            },
+            status: (['draft', 'published', 'archived'].includes(String(raw.status))
+              ? String(raw.status) as WorkflowVersion['status']
+              : 'draft'),
+            tags: Array.isArray(raw.tags) ? (raw.tags as string[]) : [],
+            performance: {
+              executionTime: Number((raw.performance as Record<string, unknown>)?.executionTime ?? 0),
+              successRate: Number((raw.performance as Record<string, unknown>)?.successRate ?? 0),
+              nodeCount: Number((raw.performance as Record<string, unknown>)?.nodeCount ?? nodesSnap.length),
+            },
+            isPrimary: i === 0,
+          }
+        })
+
+        if (!cancelled) {
+          setVersions(mapped)
+          const branchNames = [...new Set(mapped.map(v => v.branch))]
+          setBranches(branchNames.length > 0
+            ? branchNames.map((name, i) => ({
+                name,
+                isActive: name === 'main' || i === 0,
+                lastCommit: mapped.find(v => v.branch === name)?.timestamp || '',
+                author: mapped.find(v => v.branch === name)?.author || '',
+                ahead: 0,
+                behind: 0,
+                status: 'active' as const,
+              }))
+            : [{ name: 'main', isActive: true, lastCommit: '', author: '', ahead: 0, behind: 0, status: 'active' as const }])
+        }
+      } catch (err) {
+        console.error('Failed to load workflow versions', err)
+        if (!cancelled) {
+          setVersions([])
+          setBranches([{ name: 'main', isActive: true, lastCommit: '', author: '', ahead: 0, behind: 0, status: 'active' }])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    loadVersions()
+    return () => { cancelled = true }
+  }, [workflowId])
+
   const generateComparison = useCallback((fromId: string, toId: string) => {
     const fromVersion = versions.find(v => v.id === fromId)
     const toVersion = versions.find(v => v.id === toId)
     
     if (!fromVersion || !toVersion) return
 
-    // Simulate diff generation
     const comparison: ComparisonData = {
       fromVersion: fromVersion.version,
       toVersion: toVersion.version,
       differences: {
-        nodesAdded: ['error_handler_node', 'retry_logic_node'],
-        nodesRemoved: ['legacy_transform_node'],
-        nodesModified: ['api_call_node', 'data_validator_node', 'notification_node'],
-        edgesChanged: ['start->api_call', 'api_call->error_handler'],
+        nodesAdded: [],
+        nodesRemoved: [],
+        nodesModified: [],
+        edgesChanged: [],
         configChanges: {
-          'api_call_node.timeout': { from: 30, to: 60 },
-          'retry_logic_node.max_attempts': { from: 3, to: 5 }
+          message: {
+            from: fromVersion.message,
+            to: toVersion.message,
+          },
+          changes: {
+            from: fromVersion.changes,
+            to: toVersion.changes,
+          },
         }
       }
     }
 
     setComparisonData(comparison)
-  }, [versions, setComparisonData])
+  }, [versions])
 
   useEffect(() => {
-    // Auto-generate comparison when two versions are selected
     if (selectedVersions.length === 2) {
       generateComparison(selectedVersions[0], selectedVersions[1])
     }
   }, [selectedVersions, generateComparison])
 
-  const createVersion = () => {
+  const createVersion = async () => {
     if (!commitMessage.trim()) {
       toast({
         title: 'Commit Message Required',
@@ -220,26 +228,46 @@ const SmartVersionControl: React.FC<SmartVersionControlProps> = ({
       return
     }
 
-    const newVersion: WorkflowVersion = {
-      id: `v${Date.now()}`,
-      version: `1.${versions.length + 1}.0`,
-      branch: branches.find(b => b.isActive)?.name || 'main',
-      author: 'Current User',
-      timestamp: 'Just now',
-      message: commitMessage,
-      changes: { added: 2, modified: 3, removed: 1 },
-      status: 'draft',
-      tags: [],
-      performance: { executionTime: 0, successRate: 0, nodeCount: 0 }
+    if (!workflowId) {
+      toast({
+        title: 'No workflow selected',
+        description: 'Open a saved workflow to create versions',
+        variant: 'destructive'
+      })
+      return
     }
 
-    setVersions(prev => [newVersion, ...prev])
-    setCommitMessage('')
+    try {
+      const saved = await apiClient.saveWorkflowVersion(workflowId, {
+        message: commitMessage.trim(),
+      })
+      const newVersion: WorkflowVersion = {
+        id: String(saved.id || `v${Date.now()}`),
+        version: String(saved.version || `1.${versions.length + 1}.0`),
+        branch: String(saved.branch || branches.find(b => b.isActive)?.name || 'main'),
+        author: String(saved.author || 'Current User'),
+        timestamp: String(saved.timestamp || 'Just now'),
+        message: String(saved.message || commitMessage),
+        changes: saved.changes || { added: 0, modified: 0, removed: 0 },
+        status: saved.status || 'draft',
+        tags: saved.tags || [],
+        performance: { executionTime: 0, successRate: 0, nodeCount: 0 }
+      }
 
-    toast({
-      title: 'Version Created',
-      description: `Version ${newVersion.version} has been created successfully`,
-    })
+      setVersions(prev => [newVersion, ...prev])
+      setCommitMessage('')
+      toast({
+        title: 'Version Created',
+        description: `Version ${newVersion.version} has been created successfully`,
+      })
+    } catch (err) {
+      console.error(err)
+      toast({
+        title: 'Failed to create version',
+        description: 'Could not save workflow version',
+        variant: 'destructive'
+      })
+    }
   }
 
   const createBranch = () => {
@@ -400,6 +428,22 @@ const SmartVersionControl: React.FC<SmartVersionControlProps> = ({
 
           {/* Version List */}
           <div className="space-y-3">
+            {loading && (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  Loading versions…
+                </CardContent>
+              </Card>
+            )}
+            {!loading && versions.length === 0 && (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  {workflowId
+                    ? 'No versions yet. Create one to start tracking changes.'
+                    : 'Select a saved workflow to view version history.'}
+                </CardContent>
+              </Card>
+            )}
             {versions.map((version) => (
               <Card 
                 key={version.id} 

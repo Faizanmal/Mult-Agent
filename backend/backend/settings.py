@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from datetime import timedelta as _td
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 import os
 from dotenv import load_dotenv
 
@@ -32,15 +33,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'your-very-long-random-secret-key-here-at-least-50-characters-for-security')
+_DEFAULT_DEV_SECRET = 'dev-only-insecure-secret-key-change-me-before-launch-50chars'
+SECRET_KEY = os.getenv('SECRET_KEY', _DEFAULT_DEV_SECRET)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+if not DEBUG and (not SECRET_KEY or SECRET_KEY == _DEFAULT_DEV_SECRET or 'change-me' in SECRET_KEY.lower() or 'insecure' in SECRET_KEY.lower()):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        'Set a strong SECRET_KEY in the environment when DEBUG=False.'
+    )
+
+ALLOWED_HOSTS = [
+    h.strip() for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0').split(',')
+    if h.strip()
+]
 
 # Security settings for deployment
-SECURE_SSL_REDIRECT = not DEBUG
+SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', str(not DEBUG)).lower() in ('true', '1', 'yes')
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
@@ -51,6 +62,7 @@ CSRF_COOKIE_SECURE = not DEBUG
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',  # Must be first so `runserver` uses ASGI (WebSockets)
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -138,13 +150,65 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
+# Prefer DATABASE_URL (postgresql://...), then POSTGRES_* vars, else SQLite.
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+
+def _build_databases():
+    database_url = (os.getenv('DATABASE_URL') or '').strip()
+    if database_url.startswith('sqlite://'):
+        parsed = urlparse(database_url)
+        sqlite_name = unquote(parsed.path.lstrip('/')) or 'db.sqlite3'
+        if sqlite_name != ':memory:':
+            sqlite_name = BASE_DIR / sqlite_name
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': sqlite_name,
+            }
+        }
+
+    if database_url.startswith(('postgres://', 'postgresql://')):
+        parsed = urlparse(database_url)
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': unquote(parsed.path.lstrip('/')) or 'multi_agent_db',
+                'USER': unquote(parsed.username or 'postgres'),
+                'PASSWORD': unquote(parsed.password or ''),
+                'HOST': parsed.hostname or 'localhost',
+                'PORT': str(parsed.port or 5432),
+                'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+                'OPTIONS': {
+                    'connect_timeout': int(os.getenv('DB_CONNECT_TIMEOUT', '10')),
+                },
+            }
+        }
+
+    if os.getenv('POSTGRES_DB') or os.getenv('POSTGRES_HOST'):
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': os.getenv('POSTGRES_DB', 'multi_agent_db'),
+                'USER': os.getenv('POSTGRES_USER', 'postgres'),
+                'PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
+                'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
+                'PORT': os.getenv('POSTGRES_PORT', '5432'),
+                'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+                'OPTIONS': {
+                    'connect_timeout': int(os.getenv('DB_CONNECT_TIMEOUT', '10')),
+                },
+            }
+        }
+
+    return {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+
+
+DATABASES = _build_databases()
 
 # Custom User Model
 AUTH_USER_MODEL = 'authentication.CustomUser'
@@ -238,10 +302,8 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.TokenAuthentication',
     ],
+    # Always require auth by default — public endpoints opt in with AllowAny.
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
-    ] if DEBUG else [
-        # Authenticated by default; use authentication.rbac.RBACPermission on specific views
         'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
@@ -305,6 +367,8 @@ AZURE_API_KEY = os.getenv('AZURE_API_KEY')
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', 'sk_test_dummy')
 STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', 'whsec_dummy')
+STRIPE_PRICE_PRO = os.getenv('STRIPE_PRICE_PRO', '')
+STRIPE_PRICE_ENTERPRISE = os.getenv('STRIPE_PRICE_ENTERPRISE', '')
 
 # ---------------------------------------------------------------------------
 # JWT configuration
@@ -419,10 +483,13 @@ if DEBUG:
     }
 else:
     # Use Redis cache for production
+    _redis_url = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
+    # Prefer DB 2 for cache if URL has no path db; keep full URL when provided
+    _cache_location = os.getenv('REDIS_CACHE_URL', _redis_url)
     CACHES = {
         'default': {
             'BACKEND': 'django_redis.cache.RedisCache',
-            'LOCATION': 'redis://127.0.0.1:6379/2',
+            'LOCATION': _cache_location,
             'OPTIONS': {
                 'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             }

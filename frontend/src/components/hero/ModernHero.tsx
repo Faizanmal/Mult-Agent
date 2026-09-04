@@ -6,6 +6,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { ArrowRight, Sparkles, Zap, Brain, Globe } from 'lucide-react';
 import { staggerContainer, staggerItem } from '@/lib/animations';
@@ -34,7 +35,7 @@ export function ModernHero() {
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 backdrop-blur-sm">
             <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
             <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
-              Next-Gen AI Platform
+              Public Beta · Groq-powered
             </span>
             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
           </div>
@@ -69,29 +70,33 @@ export function ModernHero() {
           variants={staggerItem}
           className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-16"
         >
-          <motion.button
-            whileHover={{ scale: 1.05, y: -2 }}
-            whileTap={{ scale: 0.95 }}
-            className="group px-8 py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold shadow-lg shadow-indigo-500/50 hover:shadow-xl hover:shadow-indigo-500/60 transition-all"
-          >
-            <span className="flex items-center gap-2">
-              Get Started
-              <motion.span
-                animate={{ x: [0, 5, 0] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-              >
-                <ArrowRight className="w-5 h-5" />
-              </motion.span>
-            </span>
-          </motion.button>
+          <Link href="/register">
+            <motion.span
+              whileHover={{ scale: 1.05, y: -2 }}
+              whileTap={{ scale: 0.95 }}
+              className="group inline-flex px-8 py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold shadow-lg shadow-indigo-500/50 hover:shadow-xl hover:shadow-indigo-500/60 transition-all"
+            >
+              <span className="flex items-center gap-2">
+                Get Started
+                <motion.span
+                  animate={{ x: [0, 5, 0] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  <ArrowRight className="w-5 h-5" />
+                </motion.span>
+              </span>
+            </motion.span>
+          </Link>
 
-          <motion.button
-            whileHover={{ scale: 1.05, y: -2 }}
-            whileTap={{ scale: 0.95 }}
-            className="px-8 py-4 rounded-xl bg-white dark:bg-gray-900 border-2 border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white font-semibold hover:border-indigo-500/50 transition-all"
-          >
-            Watch Demo
-          </motion.button>
+          <Link href="/login">
+            <motion.span
+              whileHover={{ scale: 1.05, y: -2 }}
+              whileTap={{ scale: 0.95 }}
+              className="inline-flex px-8 py-4 rounded-xl bg-white dark:bg-gray-900 border-2 border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white font-semibold hover:border-indigo-500/50 transition-all"
+            >
+              Sign In
+            </motion.span>
+          </Link>
         </motion.div>
 
         {/* Feature Pills */}

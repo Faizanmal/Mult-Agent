@@ -1,98 +1,51 @@
-# 🚀 Multi-Agent Orchestration System - Enterprise Edition
+# 🚀 Multi-Agent Orchestration System
 
-> **Production-Ready** - A sophisticated multi-agent system with advanced AI capabilities, enterprise security, GDPR compliance, and cloud-native scalability.
+> **Public Beta** — Build and run multi-agent workflows with Groq-powered inference. Core flows (auth, agents, chat, automations) are usable; advanced modules are still maturing.
 
-![Production Ready](https://img.shields.io/badge/status-production_ready-brightgreen.svg)
+![Status](https://img.shields.io/badge/status-public_beta-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11+-green.svg)
-![Django](https://img.shields.io/badge/django-5.1+-blue.svg)
-![Next.js](https://img.shields.io/badge/next.js-15+-blue.svg)
-![Kubernetes](https://img.shields.io/badge/kubernetes-ready-blue.svg)
+![Django](https://img.shields.io/badge/django-5.1.5-blue.svg)
+![Next.js](https://img.shields.io/badge/next.js-16-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-✨ **NEW**: Fully enhanced with multi-model AI, Azure integrations, GDPR compliance, real-time analytics, and Kubernetes auto-scaling!
+## Current Product Surface
 
-## 🎉 What's New in Enterprise Edition
+Current beta paths available in the main app:
 
-### 🤖 Multi-Model Intelligence
-- **3 AI Providers**: Groq (Llama-3.3), OpenAI (GPT-4), Anthropic (Claude-3)
-- **Smart Routing**: Automatic model selection based on task complexity
-- **Fallback Logic**: Seamless failover between providers
-- **Cost Optimization**: User-configurable budget and priority settings
+- Dashboard + Workspace
+- Email / Google / GitHub auth
+- Agents + Chat + Automations + Workflows
+- Integrations + MCP Tools + Data Pipelines + Plugins + Webhooks
+- Analytics + Coordination + Intelligence + Reports + Notifications
+- Settings + Billing (Stripe checkout when configured)
+- Privacy Policy + Terms pages
 
-### 🧠 Agent Learning
-- **Reinforcement Learning**: Q-learning algorithm for continuous improvement
-- **Experience Replay**: Learn from past interactions (10,000 experience buffer)
-- **User Feedback Integration**: Ratings directly improve agent performance
+Positioning note: several modules are still beta-quality, but they are visible in primary navigation and should be documented as shipped UI surface.
 
-### ☁️ Azure Integration
-- **Azure CosmosDB**: Scalable NoSQL storage with hierarchical partitioning
-- **Azure Functions**: Serverless agent execution
-- **Best Practices**: Following Azure Well-Architected Framework
+## What's included
 
-### 🔔 Multi-Channel Notifications
-- **SMS**: Twilio integration with multi-recipient support
-- **Push**: Firebase Cloud Messaging for mobile apps
-- **Existing**: Email, Slack, Discord, Telegram, Webhooks
+### Multi-Model Intelligence
+- **Providers**: Groq, OpenAI, Anthropic (when keys are configured)
+- **Routing / fallback**: available in the intelligence modules; polish ongoing
 
-### 🔒 Enterprise Security
-- **OAuth2 & JWT**: Standard authentication flows
-- **API Keys**: Scoped access control with rate limiting
-- **GDPR Compliance**: Data encryption, consent tracking, right to erasure
-- **Webhook Security**: HMAC-SHA256 signature verification
+### Agent Learning & Azure / notifications
+- Present in the codebase; treat as experimental during beta
 
-### 📊 Analytics & Monitoring
-- **Real-Time Dashboard**: System health, performance metrics, cost analysis
-- **User Feedback System**: 5-star ratings, sentiment analysis, trend reports
-- **Performance Monitoring**: P95 latency, cache hit rates, error tracking
-- **Redis Caching**: 60-90% cache hit rate for optimal performance
+### Security
+- **OAuth2 & JWT** authentication
+- **API keys** and rate limiting
+- **Quota enforcement** on agent message endpoints
+- Set `DEBUG=False` and a strong `SECRET_KEY` before any public deploy
 
-### ⚡ Cloud-Native Scalability
-- **Kubernetes**: Auto-scaling 3-20 backend pods, 2-10 frontend pods
-- **Docker Compose**: Local development environment
-- **Health Checks**: Liveness and readiness probes
-- **Zero-Downtime Deployments**: Rolling updates with graceful shutdown
+### Workflow Automation
+- Zapier / Make-oriented hooks exist; verify end-to-end before promising to customers
 
-### 🔄 Workflow Automation
-- **Zapier Integration**: Connect to 5000+ apps
-- **Make.com Integration**: Visual workflow builder
-- **RPC API**: Programmatic workflow execution
+## Documentation
 
-## 📚 Documentation
+- **[Kubernetes Guide](k8s/README.md)** - Deployment sketches
+- Copy `backend/.env.example` → `backend/.env` and fill real keys before launch
 
-- **[Quick Start Guide](QUICK_START.md)** - Get running in 5 minutes
-- **[Setup Guide](SETUP_GUIDE.md)** - Comprehensive installation instructions
-- **[Implementation Summary](IMPLEMENTATION_SUMMARY.md)** - Complete feature breakdown
-- **[Kubernetes Guide](k8s/README.md)** - Production deployment instructions
-- **[Feature Checklist](CHECKLIST.md)** - Verify all implementations
-
-## 🌟 Features
-
-### 🧠 Multi-Agent Architecture
-- **Orchestrator Agent**: Master coordinator for complex workflows
-- **Vision Agent**: Computer vision and image processing
-- **Reasoning Agent**: Logical analysis and decision making
-- **Action Agent**: Task execution and external integrations
-- **Memory Agent**: Context management and knowledge retention
-- **Learning Agent**: Self-improvement through reinforcement learning (NEW)
-
-### ⚡ Real-Time Performance
-- **Multi-Model Intelligence**: Groq + OpenAI + Anthropic (NEW)
-- **Redis Caching**: Model results, agent state, session data (NEW)
-- **WebSocket Communication**: Real-time agent coordination with presence tracking (ENHANCED)
-- **Streaming Responses**: Live processing updates
-- **Performance Monitoring**: P95 latency, error rates, cache stats (NEW)
-
-### 🎯 Multi-Modal Intelligence
-- **Text Processing**: Natural language understanding and generation
-- **Vision Processing**: Image analysis, OCR, object detection
-- **Audio Processing**: Speech recognition and analysis
-- **File Processing**: Document analysis and extraction
-
-### 🔧 Model Context Protocol (MCP)
-- **External Tool Integration**: API calls, database queries, file operations
-- **Custom MCP Tools**: Extensible tool framework
-- **Agent-to-Agent Communication**: Seamless information flow
-- **Context Sharing**: Unified knowledge base
+> Note: older doc links (`QUICK_START.md`, `SETUP_GUIDE.md`, etc.) may be missing; use `.env.example` and Docker Compose as the source of truth.
 
 ## 🏗️ Architecture
 
@@ -284,8 +237,8 @@ npm run lint
 
 ### Development Tools
 
-- **Backend**: Django 5.1+, Django REST Framework, Channels (WebSocket)
-- **Frontend**: Next.js 15+, React 18+, TailwindCSS, shadcn/ui
+- **Backend**: Django 5.1.5, Django REST Framework, Channels (WebSocket)
+- **Frontend**: Next.js 16.x, React 19.x, TailwindCSS, shadcn/ui
 - **Database**: SQLite (development), PostgreSQL (production)
 - **Real-time**: WebSocket, Django Channels
 - **AI Integration**: Groq API, OpenAI API
@@ -305,17 +258,25 @@ POST /agents/api/sessions/       # Create session
 GET /agents/api/sessions/{id}/   # Session details
 POST /agents/api/sessions/{id}/send_message/  # Send message
 
-# Authentication
-POST /auth/login/                # User login
-POST /auth/logout/               # User logout
-POST /auth/register/             # User registration
+# Authentication (frontend-facing)
+POST /api/auth/v2/login/         # Email/password login
+POST /api/auth/v2/register/      # Email/password registration
+POST /api/auth/refresh/          # Token refresh
+GET  /api/auth/me/               # Current user profile
+
+# OAuth
+GET /api/auth/google/            # Start Google OAuth
+GET /api/auth/github/            # Start GitHub OAuth
+
+# Billing
+GET /api/billing/status/         # Usage + subscription status
 ```
 
 ### WebSocket Connections
 
 ```javascript
 // Connect to WebSocket
-const ws = new WebSocket('ws://localhost:8000/ws/agents/');
+const ws = new WebSocket('ws://localhost:8000/ws/session/<session_id>/');
 
 // Send message
 ws.send(JSON.stringify({
@@ -323,7 +284,8 @@ ws.send(JSON.stringify({
   content: 'Hello, agents!'
 }));
 ```
-```
+
+Quota semantics: backend enforcement is currently monthly **messages** per workspace (free: 100, pro: 10,000, enterprise: 1,000,000).
 
 ## 🧪 Use Cases
 

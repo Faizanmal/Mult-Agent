@@ -1,6 +1,21 @@
 // User Feedback Hook
 import { useState, useCallback } from 'react';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+function authHeaders(): HeadersInit {
+  const token =
+    typeof window !== 'undefined'
+      ? localStorage.getItem('access_token') ||
+        localStorage.getItem('auth_token') ||
+        localStorage.getItem('token')
+      : null;
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 export interface FeedbackData {
   feedback_type: 'rating' | 'thumbs' | 'text' | 'bug_report' | 'feature_request';
   rating?: number;
@@ -37,12 +52,9 @@ export function useFeedback() {
     setError(null);
 
     try {
-      const response = await fetch('/api/feedback/feedback/', {
+      const response = await fetch(`${API_BASE}/api/feedback/feedback/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
+        headers: authHeaders(),
         body: JSON.stringify(data),
       });
 
@@ -60,12 +72,9 @@ export function useFeedback() {
     rating: number
   ): Promise<boolean> => {
     try {
-      const response = await fetch('/api/feedback/quick_rating/', {
+      const response = await fetch(`${API_BASE}/api/feedback/feedback/quick_rating/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
+        headers: authHeaders(),
         body: JSON.stringify({
           message_id: messageId,
           rating,
@@ -84,12 +93,9 @@ export function useFeedback() {
     thumbsUp: boolean
   ): Promise<boolean> => {
     try {
-      const response = await fetch('/api/feedback/thumbs/', {
+      const response = await fetch(`${API_BASE}/api/feedback/feedback/thumbs/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
+        headers: authHeaders(),
         body: JSON.stringify({
           message_id: messageId,
           thumbs_up: thumbsUp,
@@ -109,11 +115,9 @@ export function useFeedback() {
   ): Promise<AgentInsights | null> => {
     try {
       const response = await fetch(
-        `/api/feedback/ratings/agent_insights/?agent_id=${agentId}&days=${days}`,
+        `${API_BASE}/api/feedback/ratings/agent_insights/?agent_id=${agentId}&days=${days}`,
         {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          },
+          headers: authHeaders(),
         }
       );
 

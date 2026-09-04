@@ -8,6 +8,9 @@ from api_integrations.providers import (
     NotionProvider, JiraProvider, DiscordProvider, S3Provider,
     TelegramProvider, TrelloProvider, LinearProvider, HubSpotProvider,
     TwilioProvider, AirtableProvider, GoogleCalendarProvider, WebhookProvider,
+    WhatsAppProvider, InstagramProvider,
+    GoogleDriveProvider, DropboxProvider, OutlookProvider, MicrosoftTeamsProvider,
+    OneDriveProvider, StripeProvider, SupabaseProvider, ShopifyProvider,
 )
 
 User = get_user_model()
@@ -72,6 +75,66 @@ TEMPLATES = [
         "category": "social",
         "tags": ["chat", "bot", "messaging"],
         "description": "Send messages and read updates via Telegram Bot API",
+    },
+    {
+        "provider": WhatsAppProvider,
+        "category": "social",
+        "tags": ["chat", "messaging", "meta", "whatsapp"],
+        "description": "Send WhatsApp Business texts and templates via Meta Cloud API",
+    },
+    {
+        "provider": InstagramProvider,
+        "category": "social",
+        "tags": ["social", "messaging", "meta", "instagram"],
+        "description": "Read Instagram profile/media and send DMs via Graph API",
+    },
+    {
+        "provider": GoogleDriveProvider,
+        "category": "cloud",
+        "tags": ["files", "docs", "google", "storage"],
+        "description": "List, search, and read Google Drive files and Docs",
+    },
+    {
+        "provider": DropboxProvider,
+        "category": "cloud",
+        "tags": ["files", "storage", "dropbox"],
+        "description": "List, search, and download Dropbox files",
+    },
+    {
+        "provider": OutlookProvider,
+        "category": "social",
+        "tags": ["email", "microsoft", "outlook"],
+        "description": "Read and send Outlook mail via Microsoft Graph",
+    },
+    {
+        "provider": MicrosoftTeamsProvider,
+        "category": "social",
+        "tags": ["chat", "microsoft", "teams"],
+        "description": "List Teams chats and post channel messages",
+    },
+    {
+        "provider": OneDriveProvider,
+        "category": "cloud",
+        "tags": ["files", "microsoft", "onedrive"],
+        "description": "List, search, and read OneDrive files",
+    },
+    {
+        "provider": StripeProvider,
+        "category": "other",
+        "tags": ["billing", "payments", "invoices"],
+        "description": "List customers, invoices, subscriptions, and balance",
+    },
+    {
+        "provider": SupabaseProvider,
+        "category": "database",
+        "tags": ["postgres", "database", "supabase"],
+        "description": "Query and insert rows via Supabase PostgREST",
+    },
+    {
+        "provider": ShopifyProvider,
+        "category": "other",
+        "tags": ["ecommerce", "orders", "shopify"],
+        "description": "List Shopify products and orders",
     },
     {
         "provider": TrelloProvider,

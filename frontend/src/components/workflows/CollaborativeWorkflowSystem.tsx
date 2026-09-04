@@ -30,6 +30,7 @@ import {
   Activity
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import apiClient from '@/lib/api'
 
 interface TeamMember {
   id: string
@@ -79,95 +80,10 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
   workflowId,
   onCollaborationUpdate
 }) => {
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([
-    {
-      id: '1',
-      name: 'Alice Johnson',
-      email: 'alice@example.com',
-      avatar: '/api/placeholder/32/32',
-      role: 'owner',
-      status: 'online',
-      lastActive: 'Active now',
-      permissions: ['read', 'write', 'delete', 'share']
-    },
-    {
-      id: '2',
-      name: 'Bob Smith',
-      email: 'bob@example.com',
-      role: 'editor',
-      status: 'online',
-      lastActive: '2 minutes ago',
-      permissions: ['read', 'write', 'comment']
-    },
-    {
-      id: '3',
-      name: 'Carol Davis',
-      email: 'carol@example.com',
-      role: 'viewer',
-      status: 'away',
-      lastActive: '15 minutes ago',
-      permissions: ['read', 'comment']
-    },
-    {
-      id: '4',
-      name: 'David Wilson',
-      email: 'david@example.com',
-      role: 'editor',
-      status: 'offline',
-      lastActive: '2 hours ago',
-      permissions: ['read', 'write', 'comment']
-    }
-  ])
-
-  const [comments, setComments] = useState<Comment[]>([
-    {
-      id: '1',
-      authorId: '2',
-      authorName: 'Bob Smith',
-      content: 'Should we add error handling to the API call node?',
-      timestamp: '10 minutes ago',
-      resolved: false,
-      nodeId: 'api_call_1'
-    },
-    {
-      id: '2',
-      authorId: '3',
-      authorName: 'Carol Davis',
-      content: 'The workflow looks good overall. Performance seems optimal.',
-      timestamp: '1 hour ago',
-      resolved: true
-    }
-  ])
-
-  const [activities, setActivities] = useState<WorkflowActivity[]>([
-    {
-      id: '1',
-      userId: '2',
-      userName: 'Bob Smith',
-      action: 'edited',
-      description: 'Modified the API call configuration',
-      timestamp: '5 minutes ago',
-      type: 'edit'
-    },
-    {
-      id: '2',
-      userId: '3',
-      userName: 'Carol Davis',
-      action: 'commented',
-      description: 'Added a comment on node optimization',
-      timestamp: '1 hour ago',
-      type: 'comment'
-    },
-    {
-      id: '3',
-      userId: '1',
-      userName: 'Alice Johnson',
-      action: 'executed',
-      description: 'Ran the workflow successfully',
-      timestamp: '2 hours ago',
-      type: 'execute'
-    }
-  ])
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [comments, setComments] = useState<Comment[]>([])
+  const [activities, setActivities] = useState<WorkflowActivity[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [newComment, setNewComment] = useState('')
   const [newMemberEmail, setNewMemberEmail] = useState('')
@@ -178,79 +94,185 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
   const { toast } = useToast()
 
   useEffect(() => {
-    // Simulate real-time updates
-    if (realTimeEnabled) {
-      const interval = setInterval(() => {
-        // Simulate new activity
-        if (Math.random() > 0.7) {
-          const newActivity: WorkflowActivity = {
-            id: `activity_${Date.now()}`,
-            userId: teamMembers[Math.floor(Math.random() * teamMembers.length)].id,
-            userName: teamMembers[Math.floor(Math.random() * teamMembers.length)].name,
-            action: 'viewed',
-            description: 'Viewed the workflow',
-            timestamp: 'Just now',
-            type: 'edit'
-          }
-          
-          setActivities(prev => [newActivity, ...prev.slice(0, 9)])
+    let cancelled = false
+
+    const loadCollaboration = async () => {
+      setLoading(true)
+      try {
+        const [membersRes, commentsRes] = await Promise.allSettled([
+          apiClient.getTeamMembers(),
+          apiClient.getComments(),
+        ])
+
+        if (!cancelled && membersRes.status === 'fulfilled') {
+          const raw = membersRes.value?.members ?? (membersRes.value as { members?: unknown[] })?.members ?? []
+          const list = Array.isArray(raw) ? raw : []
+          setTeamMembers(list.map((m: Record<string, unknown>, i: number) => ({
+            id: String(m.id ?? `member-${i}`),
+            name: String(m.name || m.email || 'Member'),
+            email: String(m.email || ''),
+            avatar: m.avatar ? String(m.avatar) : undefined,
+            role: (['owner', 'editor', 'viewer'].includes(String(m.role))
+              ? String(m.role) as TeamMember['role']
+              : 'viewer'),
+            status: (['online', 'offline', 'away'].includes(String(m.status))
+              ? String(m.status) as TeamMember['status']
+              : 'offline'),
+            lastActive: String(m.last_active || m.lastActive || 'Unknown'),
+            permissions: Array.isArray(m.permissions) ? (m.permissions as string[]) : ['read'],
+          })))
         }
-      }, 10000)
 
-      return () => clearInterval(interval)
+        if (!cancelled && commentsRes.status === 'fulfilled') {
+          const raw = commentsRes.value?.comments ?? []
+          const list = Array.isArray(raw) ? raw : []
+          setComments(list.map((c: Record<string, unknown>, i: number) => ({
+            id: String(c.id ?? `comment-${i}`),
+            authorId: String(c.author_id || c.authorId || ''),
+            authorName: String(c.author_name || c.authorName || 'User'),
+            content: String(c.content || ''),
+            timestamp: String(c.timestamp || c.created_at || ''),
+            resolved: Boolean(c.resolved),
+            nodeId: c.node_id ? String(c.node_id) : undefined,
+          })))
+        }
+
+        // Activity feed requires a collaboration session; leave empty until available
+        if (!cancelled) setActivities([])
+      } catch (err) {
+        console.error('Failed to load collaboration data', err)
+        if (!cancelled) {
+          setTeamMembers([])
+          setComments([])
+          setActivities([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
-  }, [realTimeEnabled, teamMembers])
 
-  const addComment = () => {
+    loadCollaboration()
+    return () => { cancelled = true }
+  }, [workflowId])
+
+  // Soft refresh of members/comments when real-time toggle is on (no fake activity)
+  useEffect(() => {
+    if (!realTimeEnabled) return
+    const interval = setInterval(async () => {
+      try {
+        const [membersRes, commentsRes] = await Promise.allSettled([
+          apiClient.getTeamMembers(),
+          apiClient.getComments(),
+        ])
+        if (membersRes.status === 'fulfilled') {
+          const raw = membersRes.value?.members ?? []
+          if (Array.isArray(raw)) {
+            setTeamMembers(raw.map((m: Record<string, unknown>, i: number) => ({
+              id: String(m.id ?? `member-${i}`),
+              name: String(m.name || m.email || 'Member'),
+              email: String(m.email || ''),
+              avatar: m.avatar ? String(m.avatar) : undefined,
+              role: (['owner', 'editor', 'viewer'].includes(String(m.role))
+                ? String(m.role) as TeamMember['role']
+                : 'viewer'),
+              status: (['online', 'offline', 'away'].includes(String(m.status))
+                ? String(m.status) as TeamMember['status']
+                : 'offline'),
+              lastActive: String(m.last_active || m.lastActive || 'Unknown'),
+              permissions: Array.isArray(m.permissions) ? (m.permissions as string[]) : ['read'],
+            })))
+          }
+        }
+        if (commentsRes.status === 'fulfilled') {
+          const raw = commentsRes.value?.comments ?? []
+          if (Array.isArray(raw)) {
+            setComments(raw.map((c: Record<string, unknown>, i: number) => ({
+              id: String(c.id ?? `comment-${i}`),
+              authorId: String(c.author_id || c.authorId || ''),
+              authorName: String(c.author_name || c.authorName || 'User'),
+              content: String(c.content || ''),
+              timestamp: String(c.timestamp || c.created_at || ''),
+              resolved: Boolean(c.resolved),
+              nodeId: c.node_id ? String(c.node_id) : undefined,
+            })))
+          }
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 15000)
+    return () => clearInterval(interval)
+  }, [realTimeEnabled])
+
+  const addComment = async () => {
     if (!newComment.trim()) return
+    const content = newComment.trim()
 
-    const comment: Comment = {
-      id: `comment_${Date.now()}`,
-      authorId: currentUserId,
-      authorName: 'Current User',
-      content: newComment,
-      timestamp: 'Just now',
-      resolved: false
-    }
-
-    setComments(prev => [comment, ...prev])
-    setNewComment('')
-
-    toast({
-      title: 'Comment Added',
-      description: 'Your comment has been posted successfully',
-    })
-
-    if (onCollaborationUpdate) {
-      onCollaborationUpdate({ event: 'comment_added', payload: comment })
+    try {
+      const saved = await apiClient.addComment(content)
+      const comment: Comment = {
+        id: String(saved.id || `comment_${Date.now()}`),
+        authorId: String(saved.author_id || currentUserId),
+        authorName: String(saved.author_name || 'Current User'),
+        content: String(saved.content || content),
+        timestamp: String(saved.timestamp || 'Just now'),
+        resolved: Boolean(saved.resolved),
+        nodeId: saved.node_id ? String(saved.node_id) : undefined,
+      }
+      setComments(prev => [comment, ...prev])
+      setNewComment('')
+      toast({
+        title: 'Comment Added',
+        description: 'Your comment has been posted successfully',
+      })
+      onCollaborationUpdate?.({ event: 'comment_added', payload: comment })
+    } catch (err) {
+      console.error(err)
+      toast({
+        title: 'Failed to add comment',
+        description: 'Could not reach the collaboration API',
+        variant: 'destructive',
+      })
     }
   }
 
-  const inviteMember = () => {
+  const inviteMember = async () => {
     if (!newMemberEmail.trim()) return
+    const email = newMemberEmail.trim()
 
-    const newMember: TeamMember = {
-      id: `member_${Date.now()}`,
-      name: newMemberEmail.split('@')[0],
-      email: newMemberEmail,
-      role: selectedRole as TeamMember['role'],
-      status: 'offline',
-      lastActive: 'Never',
-      permissions: selectedRole === 'owner' ? ['read', 'write', 'delete', 'share'] :
-                  selectedRole === 'editor' ? ['read', 'write', 'comment'] :
-                  ['read', 'comment']
-    }
-
-    setTeamMembers(prev => [...prev, newMember])
-    setNewMemberEmail('')
-
-    toast({
-      title: 'Invitation Sent',
-      description: `Invitation sent to ${newMemberEmail}`,
-    })
-
-    if (onCollaborationUpdate) {
-      onCollaborationUpdate({ event: 'member_invited', payload: newMember })
+    try {
+      const saved = await apiClient.inviteTeamMember(
+        email,
+        selectedRole,
+        selectedRole === 'owner' ? ['read', 'write', 'delete', 'share'] :
+        selectedRole === 'editor' ? ['read', 'write', 'comment'] :
+        ['read', 'comment']
+      )
+      const newMember: TeamMember = {
+        id: String(saved.id || `member_${Date.now()}`),
+        name: String(saved.name || email.split('@')[0]),
+        email: String(saved.email || email),
+        role: (['owner', 'editor', 'viewer'].includes(String(saved.role))
+          ? String(saved.role) as TeamMember['role']
+          : selectedRole as TeamMember['role']),
+        status: 'offline',
+        lastActive: String(saved.last_active || 'Never'),
+        permissions: Array.isArray(saved.permissions) ? saved.permissions : ['read', 'comment'],
+      }
+      setTeamMembers(prev => [...prev, newMember])
+      setNewMemberEmail('')
+      toast({
+        title: 'Invitation Sent',
+        description: `Invitation sent to ${email}`,
+      })
+      onCollaborationUpdate?.({ event: 'member_invited', payload: newMember })
+    } catch (err) {
+      console.error(err)
+      toast({
+        title: 'Invite failed',
+        description: 'Could not invite team member',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -431,6 +453,19 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
 
           {/* Team Members List */}
           <div className="space-y-3">
+            {loading ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  Loading team…
+                </CardContent>
+              </Card>
+            ) : teamMembers.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  No team members yet. Invite someone to collaborate.
+                </CardContent>
+              </Card>
+            ) : null}
             {teamMembers.map((member) => (
               <Card key={member.id}>
                 <CardContent className="pt-6">
@@ -588,6 +623,11 @@ const CollaborativeWorkflowSystem: React.FC<CollaborativeWorkflowSystemProps> = 
             <CardContent>
               <ScrollArea className="h-96">
                 <div className="space-y-3">
+                  {activities.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-8">
+                      No activity yet
+                    </p>
+                  )}
                   {activities.map((activity, index) => (
                     <div key={activity.id}>
                       <div className="flex items-start space-x-3">

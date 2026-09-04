@@ -64,21 +64,21 @@ const plans = [
     name: 'Free',
     price: '$0',
     description: 'For individuals and small projects',
-    features: ['5 Agents', '1,000 API calls/month', 'Community support'],
+    features: ['Up to 3 Agents', '100 messages/month', 'Community support'],
   },
   {
     id: 'pro',
     name: 'Pro',
     price: '$49',
     description: 'For growing teams and businesses',
-    features: ['Unlimited Agents', '100,000 API calls/month', 'Priority support', 'Advanced analytics'],
+    features: ['Unlimited Agents', '10,000 messages/month', 'Priority support', 'Advanced analytics'],
   },
   {
     id: 'enterprise',
     name: 'Enterprise',
     price: 'Custom',
     description: 'For large organizations',
-    features: ['Custom limits', 'Dedicated support', 'SLA guarantee', 'On-premise option'],
+    features: ['1,000,000 messages/month', 'Dedicated support', 'SSO & audit logs', 'Custom limits'],
   },
 ];
 

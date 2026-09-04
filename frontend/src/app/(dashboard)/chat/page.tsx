@@ -59,7 +59,10 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '@/lib/utils';
 import { getSessions, getMessages, sendMessage, getAgents, createSession, addAgentToSession } from '@/lib/api';
-import { axiosErrorDetail, errorMessage as getErrorMessage } from '@/types/api';
+import { axiosErrorDetail, errorMessage as getErrorMessage, isQuotaLimitError } from '@/types/api';
+import { dispatchQuotaLimit } from '@/components/billing/QuotaUpgradeDialog';
+import { trackEvent, trackOnce } from '@/lib/analytics';
+import Link from 'next/link';
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<any[]>([]);
@@ -195,6 +198,9 @@ export default function ChatPage() {
         message_type: 'text',
         metadata: { agent_id: selectedAgent?.id },
       });
+
+      trackEvent('message_sent', { session_id: activeSession.id });
+      trackOnce('first_message_sent', { session_id: activeSession.id });
       
       const aiMessage = {
         id: responseMsg.id || (Date.now() + 1).toString(),
@@ -208,13 +214,24 @@ export default function ChatPage() {
       setApiConversations(prev => prev.map(c => c.id === activeSession.id ? { ...c, lastMessage: responseMsg.content } : c));
     } catch (err: unknown) {
       console.error('Failed to send message:', err);
+      if (isQuotaLimitError(err)) {
+        const data = (err as { response?: { data?: { message?: string; usage?: { used?: number; limit?: number; tier?: string } } } }).response?.data;
+        dispatchQuotaLimit({
+          message: data?.message || axiosErrorDetail(err) || 'Monthly message limit reached. Upgrade to continue.',
+          used: data?.usage?.used,
+          limit: data?.usage?.limit,
+          tier: data?.usage?.tier,
+        });
+      }
       const detail = axiosErrorDetail(err) || getErrorMessage(err);
       const assistantError = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: detail
-          ? `Sorry, I encountered an error: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`
-          : 'Sorry, I encountered an error processing your request. The request may have timed out — try again.',
+        content: isQuotaLimitError(err)
+          ? `${detail || 'Monthly message limit reached.'} Open Billing to upgrade your plan.`
+          : detail
+            ? `Sorry, I encountered an error: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`
+            : 'Sorry, I encountered an error processing your request. The request may have timed out — try again.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         agent: 'System',
       };
@@ -387,6 +404,34 @@ export default function ChatPage() {
           <CardContent className="flex-1 overflow-hidden p-0">
             <ScrollArea className="h-full p-4">
               <div className="space-y-6">
+                {messages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
+                      <MessageSquare className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                    {apiAgents.length === 0 ? (
+                      <>
+                        <h3 className="text-lg font-semibold mb-2">Create an agent first</h3>
+                        <p className="text-muted-foreground mb-4 max-w-sm">
+                          Chat needs at least one agent. Create one, then come back and send your first message.
+                        </p>
+                        <Button asChild>
+                          <Link href="/agents">Go to Agents</Link>
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <h3 className="text-lg font-semibold mb-2">Send your first message</h3>
+                        <p className="text-muted-foreground mb-2 max-w-sm">
+                          Ask {selectedAgent?.name || 'your agent'} something concrete — for example:
+                        </p>
+                        <p className="text-sm text-muted-foreground italic mb-4">
+                          &ldquo;Summarize what you can help me with in this workspace.&rdquo;
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
                 <AnimatePresence>
                   {messages.map((message, index) => (
                     <motion.div

@@ -1,5 +1,3 @@
-.github/
-
 # Environment Variables
 *.env
 .env
@@ -31,6 +29,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.ruff_cache/
 
 # Django
 *.log

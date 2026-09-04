@@ -119,18 +119,28 @@ const predefinedTemplates = [
   { id: 'anthropic', name: 'Anthropic Claude', icon: Bot, type: 'ai' },
   { id: 'slack', name: 'Slack', icon: MessageSquare, type: 'communication' },
   { id: 'gmail', name: 'Gmail', icon: Mail, type: 'communication' },
+  { id: 'outlook', name: 'Microsoft Outlook', icon: Mail, type: 'communication' },
+  { id: 'microsoft_teams', name: 'Microsoft Teams', icon: MessageSquare, type: 'communication' },
+  { id: 'whatsapp', name: 'WhatsApp', icon: MessageSquare, type: 'communication' },
+  { id: 'instagram', name: 'Instagram', icon: MessageSquare, type: 'communication' },
   { id: 'telegram', name: 'Telegram', icon: MessageSquare, type: 'communication' },
   { id: 'discord', name: 'Discord', icon: MessageSquare, type: 'communication' },
   { id: 'twilio', name: 'Twilio', icon: MessageSquare, type: 'communication' },
   { id: 'calendar', name: 'Google Calendar', icon: Calendar, type: 'communication' },
+  { id: 'google_drive', name: 'Google Drive', icon: Cloud, type: 'storage' },
+  { id: 'onedrive', name: 'OneDrive', icon: Cloud, type: 'storage' },
+  { id: 'dropbox', name: 'Dropbox', icon: Cloud, type: 'storage' },
   { id: 'github', name: 'GitHub', icon: GitBranch, type: 'devops' },
   { id: 'jira', name: 'Jira', icon: GitBranch, type: 'devops' },
   { id: 'linear', name: 'Linear', icon: GitBranch, type: 'devops' },
   { id: 'trello', name: 'Trello', icon: GitBranch, type: 'devops' },
   { id: 'aws', name: 'AWS S3', icon: Cloud, type: 'storage' },
+  { id: 'supabase', name: 'Supabase', icon: Database, type: 'storage' },
   { id: 'airtable', name: 'Airtable', icon: Database, type: 'storage' },
   { id: 'notion', name: 'Notion', icon: Globe, type: 'ai' },
   { id: 'hubspot', name: 'HubSpot', icon: BarChart3, type: 'analytics' },
+  { id: 'stripe', name: 'Stripe', icon: BarChart3, type: 'analytics' },
+  { id: 'shopify', name: 'Shopify', icon: Globe, type: 'analytics' },
   { id: 'webhook', name: 'Webhook', icon: Zap, type: 'devops' },
 ];
 
@@ -204,6 +214,75 @@ const INTEGRATION_DEFAULTS: Record<string, {
     authLabel: 'Bot Token',
     placeholder: '123456:ABC-DEF...',
     hint: 'Create a bot with @BotFather and paste the token here.',
+  },
+  whatsapp: {
+    endpoint: 'https://graph.facebook.com/v21.0',
+    authLabel: 'Meta Access Token',
+    placeholder: 'EAAxxxx...',
+    hint: 'Meta Developer → WhatsApp → API Setup. Use a permanent System User token in production.',
+    extraFields: [
+      { key: 'phone_number_id', label: 'Phone Number ID', placeholder: '123456789012345' },
+    ],
+  },
+  instagram: {
+    endpoint: 'https://graph.facebook.com/v21.0',
+    authLabel: 'Meta Access Token',
+    placeholder: 'EAAxxxx...',
+    hint: 'Connect an Instagram Business/Creator account via a Meta app with instagram_basic + messaging permissions.',
+    extraFields: [
+      { key: 'ig_user_id', label: 'Instagram User ID', placeholder: '17841400000000000' },
+    ],
+  },
+  google_drive: {
+    endpoint: 'https://www.googleapis.com/drive/v3',
+    authLabel: 'OAuth Credentials JSON',
+    placeholder: '{"access_token": "...", "scope": "https://www.googleapis.com/auth/drive.readonly"}',
+    hint: 'Google OAuth with Drive readonly (or full) scope. Paste access_token JSON.',
+  },
+  dropbox: {
+    endpoint: 'https://api.dropboxapi.com/2',
+    authLabel: 'Access Token',
+    placeholder: 'sl.Bxxxx...',
+    hint: 'Dropbox App Console → Generated access token (or OAuth token).',
+  },
+  outlook: {
+    endpoint: 'https://graph.microsoft.com/v1.0',
+    authLabel: 'Microsoft Graph Access Token',
+    placeholder: 'eyJ0eXAiOiJKV1QiLCJub...',
+    hint: 'Azure app with Mail.Read / Mail.Send delegated permissions. Paste Graph access_token.',
+  },
+  microsoft_teams: {
+    endpoint: 'https://graph.microsoft.com/v1.0',
+    authLabel: 'Microsoft Graph Access Token',
+    placeholder: 'eyJ0eXAiOiJKV1QiLCJub...',
+    hint: 'Azure app with Chat.Read / ChannelMessage.Send permissions.',
+  },
+  onedrive: {
+    endpoint: 'https://graph.microsoft.com/v1.0',
+    authLabel: 'Microsoft Graph Access Token',
+    placeholder: 'eyJ0eXAiOiJKV1QiLCJub...',
+    hint: 'Azure app with Files.Read permission for OneDrive.',
+  },
+  stripe: {
+    endpoint: 'https://api.stripe.com/v1',
+    authLabel: 'Secret Key',
+    placeholder: 'sk_live_... or sk_test_...',
+    hint: 'Stripe Dashboard → Developers → API keys. Use a restricted key in production when possible.',
+  },
+  supabase: {
+    endpoint: 'https://YOUR_PROJECT.supabase.co',
+    authLabel: 'Anon or Service Role Key',
+    placeholder: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+    hint: 'Set your project URL as endpoint. Prefer anon key + RLS; service_role bypasses RLS.',
+  },
+  shopify: {
+    endpoint: 'https://YOUR_SHOP.myshopify.com/admin/api/2024-10',
+    authLabel: 'Admin API Access Token',
+    placeholder: 'shpat_...',
+    hint: 'Shopify Admin → Apps → Develop apps → API credentials. Or set shop domain below.',
+    extraFields: [
+      { key: 'shop_domain', label: 'Shop Domain', placeholder: 'my-store.myshopify.com' },
+    ],
   },
   trello: {
     endpoint: 'https://api.trello.com/1',
@@ -292,14 +371,14 @@ export default function IntegrationsPage() {
       const mappedIntegrations: IntegrationUI[] = integrationList.map((item) => {
         const templateId = item.description || item.name?.toLowerCase() || '';
         let matchedIcon = Globe;
-        if (templateId.includes('gmail') || templateId.includes('mail')) matchedIcon = Mail;
+        if (templateId.includes('gmail') || templateId.includes('mail') || templateId.includes('outlook')) matchedIcon = Mail;
         else if (templateId.includes('open') || templateId.includes('anthropic') || templateId.includes('ai')) matchedIcon = Bot;
-        else if (templateId.includes('telegram') || templateId.includes('slack') || templateId.includes('discord') || templateId.includes('twilio')) matchedIcon = MessageSquare;
+        else if (templateId.includes('telegram') || templateId.includes('slack') || templateId.includes('discord') || templateId.includes('twilio') || templateId.includes('whatsapp') || templateId.includes('instagram') || templateId.includes('insta') || templateId.includes('teams')) matchedIcon = MessageSquare;
         else if (templateId.includes('github') || templateId.includes('jira') || templateId.includes('linear') || templateId.includes('trello')) matchedIcon = GitBranch;
-        else if (templateId.includes('notion') || templateId.includes('webhook')) matchedIcon = templateId.includes('webhook') ? Zap : Globe;
-        else if (templateId.includes('aws') || templateId.includes('s3') || templateId.includes('cloud')) matchedIcon = Cloud;
-        else if (templateId.includes('airtable')) matchedIcon = Database;
-        else if (templateId.includes('hubspot') || templateId.includes('analytic')) matchedIcon = BarChart3;
+        else if (templateId.includes('notion') || templateId.includes('webhook') || templateId.includes('shopify')) matchedIcon = templateId.includes('webhook') ? Zap : Globe;
+        else if (templateId.includes('aws') || templateId.includes('s3') || templateId.includes('cloud') || templateId.includes('drive') || templateId.includes('dropbox') || templateId.includes('onedrive')) matchedIcon = Cloud;
+        else if (templateId.includes('airtable') || templateId.includes('supabase')) matchedIcon = Database;
+        else if (templateId.includes('hubspot') || templateId.includes('analytic') || templateId.includes('stripe')) matchedIcon = BarChart3;
         else if (templateId.includes('calendar')) matchedIcon = Calendar;
         
         return {
@@ -418,6 +497,16 @@ export default function IntegrationsPage() {
     if (newIntegrationType === 'aws' && !newIntegrationExtra.secret_access_key) return false;
     if (newIntegrationType === 'trello' && !newIntegrationExtra.token) return false;
     if (newIntegrationType === 'twilio' && !newIntegrationExtra.account_sid) return false;
+    if (newIntegrationType === 'whatsapp' && !newIntegrationExtra.phone_number_id) return false;
+    if (newIntegrationType === 'instagram' && !newIntegrationExtra.ig_user_id) return false;
+    if (newIntegrationType === 'shopify') {
+      const endpoint = newIntegrationEndpoint || '';
+      if (!newIntegrationExtra.shop_domain && !endpoint.includes('myshopify.com')) return false;
+    }
+    if (newIntegrationType === 'supabase') {
+      const endpoint = newIntegrationEndpoint || '';
+      if (!endpoint || endpoint.includes('YOUR_PROJECT')) return false;
+    }
     return true;
   };
 
@@ -877,16 +966,36 @@ export default function IntegrationsPage() {
                         account_sid: newIntegrationExtra.account_sid || '',
                         from_number: newIntegrationExtra.from_number || '',
                       };
+                    } else if (newIntegrationType === 'whatsapp') {
+                      authentication = {
+                        access_token: newIntegrationKey,
+                        phone_number_id: newIntegrationExtra.phone_number_id || '',
+                      };
+                    } else if (newIntegrationType === 'instagram') {
+                      authentication = {
+                        access_token: newIntegrationKey,
+                        ig_user_id: newIntegrationExtra.ig_user_id || '',
+                      };
+                    } else if (newIntegrationType === 'shopify') {
+                      authentication = {
+                        api_key: newIntegrationKey,
+                        shop_domain: newIntegrationExtra.shop_domain || '',
+                      };
+                    } else if (
+                      ['gmail', 'calendar', 'google_drive', 'outlook', 'microsoft_teams', 'onedrive'].includes(newIntegrationType) &&
+                      newIntegrationKey.trim().startsWith('{')
+                    ) {
+                      try { authentication = JSON.parse(newIntegrationKey); } catch { /* keep api_key */ }
+                    } else if (
+                      ['outlook', 'microsoft_teams', 'onedrive', 'google_drive'].includes(newIntegrationType) &&
+                      !newIntegrationKey.trim().startsWith('{')
+                    ) {
+                      authentication = { access_token: newIntegrationKey };
                     } else if (newIntegrationType === 'airtable') {
                       authentication = {
                         api_key: newIntegrationKey,
                         base_id: newIntegrationExtra.base_id || '',
                       };
-                    } else if (
-                      (newIntegrationType === 'gmail' || newIntegrationType === 'calendar') &&
-                      newIntegrationKey.trim().startsWith('{')
-                    ) {
-                      try { authentication = JSON.parse(newIntegrationKey); } catch { /* keep api_key */ }
                     } else if (newIntegrationType === 'webhook' && !newIntegrationKey.trim()) {
                       authentication = {};
                     }
@@ -900,6 +1009,14 @@ export default function IntegrationsPage() {
                     const descriptionMap: Record<string, string> = {
                       aws: 'aws s3',
                       webhook: 'webhook',
+                      google_drive: 'google drive',
+                      microsoft_teams: 'microsoft teams',
+                      onedrive: 'onedrive',
+                      stripe: 'stripe',
+                      supabase: 'supabase',
+                      shopify: 'shopify',
+                      outlook: 'outlook',
+                      dropbox: 'dropbox',
                     };
                     await apiClient.createAPIIntegration({
                       name: newIntegrationName || template?.name || 'New Integration',

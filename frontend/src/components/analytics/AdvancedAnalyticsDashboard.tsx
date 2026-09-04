@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -46,8 +46,15 @@ import {
   PieChart as PieChartIcon,
   Target,
   Cpu,
-  HardDrive
+  HardDrive,
+  Loader2,
 } from 'lucide-react'
+import {
+  getAnalyticsDashboard,
+  getSystemPerformance,
+  getAnalyticsInsights,
+  getPerformanceMetrics,
+} from '@/lib/api'
 
 interface MetricCard {
   title: string
@@ -79,104 +86,207 @@ interface PerformanceData {
   network: number
 }
 
-const mockMetrics: MetricCard[] = [
-  {
-    title: 'Total Executions',
-    value: '1,247',
-    change: 12.5,
-    trend: 'up',
-    icon: <Activity className="w-4 h-4" />,
-    color: '#3b82f6'
-  },
-  {
-    title: 'Success Rate',
-    value: '94.8%',
-    change: 2.1,
-    trend: 'up',
-    icon: <CheckCircle className="w-4 h-4" />,
-    color: '#10b981'
-  },
-  {
-    title: 'Avg. Duration',
-    value: '2.3s',
-    change: -8.2,
-    trend: 'down',
-    icon: <Clock className="w-4 h-4" />,
-    color: '#f59e0b'
-  },
-  {
-    title: 'Active Workflows',
-    value: 23,
-    change: 5.0,
-    trend: 'up',
-    icon: <Zap className="w-4 h-4" />,
-    color: '#8b5cf6'
-  },
-  {
-    title: 'Error Rate',
-    value: '5.2%',
-    change: -15.3,
-    trend: 'down',
-    icon: <AlertTriangle className="w-4 h-4" />,
-    color: '#ef4444'
-  },
-  {
-    title: 'Total Users',
-    value: 156,
-    change: 8.7,
-    trend: 'up',
-    icon: <Users className="w-4 h-4" />,
-    color: '#06b6d4'
-  }
-]
-
-const executionTrendData: ExecutionTrendData[] = [
-  { name: '00:00', success: 45, failure: 3, time: '00:00' },
-  { name: '04:00', success: 52, failure: 2, time: '04:00' },
-  { name: '08:00', success: 78, failure: 5, time: '08:00' },
-  { name: '12:00', success: 95, failure: 8, time: '12:00' },
-  { name: '16:00', success: 112, failure: 6, time: '16:00' },
-  { name: '20:00', success: 89, failure: 4, time: '20:00' },
-]
-
-const performanceData: PerformanceData[] = [
-  { name: 'Mon', duration: 2.1, cpu: 45, memory: 67, network: 23 },
-  { name: 'Tue', duration: 1.8, cpu: 52, memory: 71, network: 28 },
-  { name: 'Wed', duration: 2.4, cpu: 48, memory: 63, network: 31 },
-  { name: 'Thu', duration: 1.9, cpu: 41, memory: 59, network: 25 },
-  { name: 'Fri', duration: 2.2, cpu: 55, memory: 73, network: 29 },
-  { name: 'Sat', duration: 1.7, cpu: 38, memory: 55, network: 22 },
-  { name: 'Sun', duration: 1.5, cpu: 35, memory: 51, network: 19 }
-]
-
-const workflowDistribution: ChartData[] = [
-  { name: 'Data Processing', value: 35 },
-  { name: 'API Integration', value: 25 },
-  { name: 'AI/ML Tasks', value: 20 },
-  { name: 'Notifications', value: 12 },
-  { name: 'File Operations', value: 8 }
-]
-
-const errorTypes: ChartData[] = [
-  { name: 'API Timeout', value: 45 },
-  { name: 'Data Validation', value: 23 },
-  { name: 'Network Error', value: 18 },
-  { name: 'Authentication', value: 14 }
-]
-
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function num(value: unknown, fallback = 0): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
 
 const AdvancedAnalyticsDashboard: React.FC = () => {
   const [timeRange, setTimeRange] = useState('7d')
   const [refreshing, setRefreshing] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
+  const [metrics, setMetrics] = useState<MetricCard[]>([])
+  const [executionTrendData, setExecutionTrendData] = useState<ExecutionTrendData[]>([])
+  const [performanceData, setPerformanceData] = useState<PerformanceData[]>([])
+  const [workflowDistribution, setWorkflowDistribution] = useState<ChartData[]>([])
+  const [errorTypes, setErrorTypes] = useState<ChartData[]>([])
+
+  const loadData = useCallback(async () => {
+    try {
+      setRefreshing(true)
+      setError(null)
+      const [dashRes, sysRes, insightsRes, perfRes] = await Promise.allSettled([
+        getAnalyticsDashboard(timeRange),
+        getSystemPerformance(),
+        getAnalyticsInsights(),
+        getPerformanceMetrics(),
+      ])
+
+      const dashboard = dashRes.status === 'fulfilled' ? asRecord(dashRes.value) : {}
+      const systemPerf = sysRes.status === 'fulfilled' ? asRecord(sysRes.value) : {}
+      const insights = insightsRes.status === 'fulfilled' ? asRecord(insightsRes.value) : {}
+      const perfMetrics = perfRes.status === 'fulfilled' ? asRecord(perfRes.value) : {}
+
+      const overview = asRecord(dashboard.overview)
+      const tasks = asRecord(overview.tasks)
+      const sessions = asRecord(overview.sessions)
+      const byStatus = asRecord(tasks.by_status)
+      const totalTasks = num(tasks.total, num(systemPerf.total_tasks))
+      const completed = num(byStatus.completed)
+      const failed = num(byStatus.failed, num(systemPerf.failed_tasks))
+      const successRate =
+        num(tasks.success_rate, num(systemPerf.success_rate)) *
+        (num(tasks.success_rate) <= 1 || num(systemPerf.success_rate) <= 1 ? 100 : 1)
+      const errorRate = totalTasks > 0 ? (failed / totalTasks) * 100 : 0
+      const avgDuration = num(systemPerf.avg_response_time ?? perfMetrics.avg_latency)
+
+      setMetrics([
+        {
+          title: 'Total Executions',
+          value: totalTasks.toLocaleString(),
+          change: 0,
+          trend: 'stable',
+          icon: <Activity className="w-4 h-4" />,
+          color: '#3b82f6',
+        },
+        {
+          title: 'Success Rate',
+          value: `${successRate.toFixed(1)}%`,
+          change: 0,
+          trend: successRate >= 90 ? 'up' : 'down',
+          icon: <CheckCircle className="w-4 h-4" />,
+          color: '#10b981',
+        },
+        {
+          title: 'Avg. Duration',
+          value: avgDuration > 0 ? `${(avgDuration / 1000).toFixed(1)}s` : '—',
+          change: 0,
+          trend: 'stable',
+          icon: <Clock className="w-4 h-4" />,
+          color: '#f59e0b',
+        },
+        {
+          title: 'Active Workflows',
+          value: num(sessions.active, num(sessions.total)),
+          change: 0,
+          trend: 'up',
+          icon: <Zap className="w-4 h-4" />,
+          color: '#8b5cf6',
+        },
+        {
+          title: 'Error Rate',
+          value: `${errorRate.toFixed(1)}%`,
+          change: 0,
+          trend: errorRate <= 5 ? 'down' : 'up',
+          icon: <AlertTriangle className="w-4 h-4" />,
+          color: '#ef4444',
+        },
+        {
+          title: 'Total Users',
+          value: num(asRecord(dashboard.user_activity).unique_users, num(overview.users)),
+          change: 0,
+          trend: 'up',
+          icon: <Users className="w-4 h-4" />,
+          color: '#06b6d4',
+        },
+      ])
+
+      const trends = asRecord(dashboard.performance_trends)
+      const completion = asArray(trends.task_completion_rate)
+      const errors = asArray(trends.error_rates)
+      if (completion.length > 0) {
+        setExecutionTrendData(
+          completion.map((item, i) => {
+            const row = asRecord(item)
+            const err = asRecord(errors[i])
+            const label = String(row.date || row.period || `P${i + 1}`)
+            return {
+              name: label.slice(0, 10),
+              success: num(row.completed ?? row.value, completed),
+              failure: num(err.count ?? err.value, failed),
+              time: label.slice(0, 10),
+            }
+          })
+        )
+      } else if (totalTasks > 0) {
+        setExecutionTrendData([
+          { name: 'Period', success: completed, failure: failed, time: 'Period' },
+        ])
+      } else {
+        setExecutionTrendData([])
+      }
+
+      const responseTimes = asArray(trends.response_times)
+      if (responseTimes.length > 0) {
+        setPerformanceData(
+          responseTimes.map((item, i) => {
+            const row = asRecord(item)
+            return {
+              name: String(row.date || row.period || `D${i + 1}`).slice(0, 10),
+              duration: num(row.avg_response_time ?? row.value) / 1000,
+              cpu: num(row.cpu, num(systemPerf.cpu_usage)),
+              memory: num(row.memory, num(systemPerf.memory_usage)),
+              network: num(row.network, 0),
+            }
+          })
+        )
+      } else {
+        setPerformanceData([])
+      }
+
+      const taskAnalytics = asRecord(dashboard.task_analytics)
+      const typeStats = asArray(
+        taskAnalytics.task_type_distribution ?? taskAnalytics.by_type
+      )
+      setWorkflowDistribution(
+        typeStats.map((item) => {
+          const row = asRecord(item)
+          return {
+            name: String(row.task_type || row.name || 'Other'),
+            value: num(row.count ?? row.value),
+          }
+        })
+      )
+
+      const insightList = asArray(insights.insights ?? dashboard.insights)
+      const derivedErrors = insightList
+        .filter((item) => {
+          const t = String(asRecord(item).type || asRecord(item).category || '')
+          return t.includes('error') || t.includes('warning') || t.includes('anomaly')
+        })
+        .map((item) => ({
+          name: String(asRecord(item).title || 'Issue'),
+          value: 1,
+        }))
+      setErrorTypes(
+        derivedErrors.length > 0
+          ? derivedErrors
+          : failed > 0
+            ? [{ name: 'Failed Tasks', value: failed }]
+            : []
+      )
+
+      if (dashRes.status === 'rejected' && sysRes.status === 'rejected') {
+        setError('Failed to load analytics')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load analytics')
+    } finally {
+      setRefreshing(false)
+      setLoading(false)
+    }
+  }, [timeRange])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   const handleRefresh = async () => {
-    setRefreshing(true)
-    // Simulate API call
-    setTimeout(() => {
-      setRefreshing(false)
-    }, 1000)
+    await loadData()
   }
 
   const MetricCard: React.FC<{ metric: MetricCard }> = ({ metric }) => (
@@ -261,11 +371,28 @@ const AdvancedAnalyticsDashboard: React.FC = () => {
       </div>
 
       {/* Key Metrics */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" />
+          Loading analytics...
+        </div>
+      ) : error ? (
+        <Card>
+          <CardContent className="p-4 text-sm text-destructive flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            {error}
+            <Button variant="outline" size="sm" className="ml-auto" onClick={handleRefresh}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        {mockMetrics.map((metric, index) => (
+        {metrics.map((metric, index) => (
           <MetricCard key={index} metric={metric} />
         ))}
       </div>
+      )}
 
       {/* Detailed Analytics */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -555,20 +682,23 @@ const AdvancedAnalyticsDashboard: React.FC = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    { user: 'John Doe', workflows: 23, lastActive: '2 hours ago' },
-                    { user: 'Jane Smith', workflows: 18, lastActive: '4 hours ago' },
-                    { user: 'Mike Johnson', workflows: 15, lastActive: '1 day ago' },
-                    { user: 'Sarah Wilson', workflows: 12, lastActive: '2 days ago' }
-                  ].map((user, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                      <div>
-                        <h4 className="font-medium">{user.user}</h4>
-                        <p className="text-sm text-muted-foreground">{user.workflows} workflows created</p>
+                  {metrics.length === 0 && !loading ? (
+                    <p className="text-sm text-muted-foreground text-center py-6">
+                      No user activity data yet.
+                    </p>
+                  ) : (
+                    metrics.slice(0, 4).map((metric, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                        <div>
+                          <h4 className="font-medium">{metric.title}</h4>
+                          <p className="text-sm text-muted-foreground">{metric.value}</p>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {metric.change > 0 ? `+${metric.change}%` : `${metric.change}%`}
+                        </span>
                       </div>
-                      <span className="text-xs text-muted-foreground">{user.lastActive}</span>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>

@@ -27,6 +27,7 @@ import {
   Lightbulb
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import apiClient from '@/lib/api'
 
 interface AutomationRule {
   id: string
@@ -54,61 +55,40 @@ interface WorkflowAutomationManagerProps {
   workflowId?: string
 }
 
-const WorkflowAutomationManager: React.FC<WorkflowAutomationManagerProps> = ({
-  onAutomationUpdate
-}) => {
-  const [automationRules, setAutomationRules] = useState<AutomationRule[]>([
-    {
-      id: 'auto-save-1',
-      name: 'Auto-Save Workflow',
-      type: 'schedule',
-      enabled: true,
-      config: { interval: 300, backupCount: 5 },
-      lastRun: '2 minutes ago',
-      nextRun: '3 minutes',
-      success: true,
-      description: 'Automatically saves workflow every 5 minutes'
-    },
-    {
-      id: 'error-detect-1',
-      name: 'Error Detection & Recovery',
-      type: 'trigger',
-      enabled: true,
-      config: { maxRetries: 3, notifyOnFailure: true },
-      lastRun: '1 hour ago',
-      success: true,
-      description: 'Detects execution errors and attempts automatic recovery'
-    },
-    {
-      id: 'performance-opt-1',
-      name: 'Performance Optimization',
-      type: 'optimization',
-      enabled: false,
-      config: { threshold: 85, autoApply: false },
-      lastRun: 'Never',
-      success: false,
-      description: 'Analyzes and suggests workflow performance improvements'
-    },
-    {
-      id: 'smart-routing-1',
-      name: 'Smart Node Routing',
-      type: 'condition',
-      enabled: true,
-      config: { adaptivePaths: true, loadBalancing: true },
-      lastRun: '30 minutes ago',
-      success: true,
-      description: 'Intelligently routes workflow execution based on conditions'
-    }
-  ])
+function mapAutomationRule(raw: Record<string, unknown>, index: number): AutomationRule {
+  const typeRaw = String(raw.type || raw.automation_type || 'trigger')
+  const type: AutomationRule['type'] =
+    ['schedule', 'trigger', 'condition', 'optimization'].includes(typeRaw)
+      ? typeRaw as AutomationRule['type']
+      : 'trigger'
 
+  return {
+    id: String(raw.id ?? `rule-${index}`),
+    name: String(raw.name || 'Untitled Rule'),
+    type,
+    enabled: Boolean(raw.enabled ?? raw.is_active ?? true),
+    config: (raw.config && typeof raw.config === 'object' ? raw.config : {}) as Record<string, unknown>,
+    lastRun: raw.last_run ? String(raw.last_run) : raw.lastRun ? String(raw.lastRun) : undefined,
+    nextRun: raw.next_run ? String(raw.next_run) : raw.nextRun ? String(raw.nextRun) : undefined,
+    success: Boolean(raw.success ?? raw.last_success ?? false),
+    description: String(raw.description || ''),
+  }
+}
+
+const WorkflowAutomationManager: React.FC<WorkflowAutomationManagerProps> = ({
+  onAutomationUpdate,
+  workflowId
+}) => {
+  const [automationRules, setAutomationRules] = useState<AutomationRule[]>([])
   const [metrics, setMetrics] = useState<AutomationMetrics>({
-    rulesActive: 3,
-    totalExecutions: 247,
-    successRate: 94.7,
-    timeSaved: 127,
-    optimizationsSuggested: 12,
-    errorsResolved: 8
+    rulesActive: 0,
+    totalExecutions: 0,
+    successRate: 0,
+    timeSaved: 0,
+    optimizationsSuggested: 0,
+    errorsResolved: 0
   })
+  const [loading, setLoading] = useState(true)
 
   const [newRuleName, setNewRuleName] = useState('')
   const [newRuleType, setNewRuleType] = useState<string>('')
@@ -119,81 +99,180 @@ const WorkflowAutomationManager: React.FC<WorkflowAutomationManagerProps> = ({
   const { toast } = useToast()
 
   useEffect(() => {
-    // Simulate real-time metrics updates
-    const interval = setInterval(() => {
-      setMetrics(prev => ({
-        ...prev,
-        totalExecutions: prev.totalExecutions + Math.floor(Math.random() * 3),
-        timeSaved: prev.timeSaved + Math.floor(Math.random() * 2)
-      }))
-    }, 5000)
+    let cancelled = false
 
-    return () => clearInterval(interval)
-  }, [])
+    const loadAutomations = async () => {
+      setLoading(true)
+      try {
+        const [rulesRes, integrationsRes, suggestionsRes] = await Promise.allSettled([
+          apiClient.getAutomationRules(),
+          apiClient.getAutomations(),
+          apiClient.getAutomationSuggestions(),
+        ])
 
-  const toggleRule = (ruleId: string) => {
-    setAutomationRules(prev => 
-      prev.map(rule => 
-        rule.id === ruleId 
-          ? { ...rule, enabled: !rule.enabled }
-          : rule
-      )
-    )
+        const mapped: AutomationRule[] = []
 
-    const rule = automationRules.find(r => r.id === ruleId)
-    if (rule) {
-      toast({
-        title: `Automation ${rule.enabled ? 'Disabled' : 'Enabled'}`,
-        description: `${rule.name} has been ${rule.enabled ? 'disabled' : 'enabled'}`,
-      })
-      
-      if (onAutomationUpdate) {
-        onAutomationUpdate({ ...rule, enabled: !rule.enabled })
+        if (rulesRes.status === 'fulfilled') {
+          const rules = rulesRes.value?.rules
+          if (Array.isArray(rules)) {
+            mapped.push(...rules.map((r, i) => mapAutomationRule(r as unknown as Record<string, unknown>, i)))
+          }
+        }
+
+        if (integrationsRes.status === 'fulfilled') {
+          const data = integrationsRes.value.data
+          const list = Array.isArray(data)
+            ? data
+            : Array.isArray((data as { results?: unknown[] })?.results)
+              ? (data as { results: unknown[] }).results
+              : []
+          for (const item of list) {
+            const r = item as Record<string, unknown>
+            const id = String(r.id ?? '')
+            if (id && !mapped.some(m => m.id === id)) {
+              mapped.push(mapAutomationRule(r, mapped.length))
+            }
+          }
+        }
+
+        let suggestionsCount = 0
+        if (suggestionsRes.status === 'fulfilled') {
+          const suggestions = suggestionsRes.value?.suggestions
+          if (Array.isArray(suggestions)) suggestionsCount = suggestions.length
+        }
+
+        if (!cancelled) {
+          setAutomationRules(mapped)
+          const active = mapped.filter(r => r.enabled).length
+          const successCount = mapped.filter(r => r.success).length
+          setMetrics({
+            rulesActive: active,
+            totalExecutions: mapped.length,
+            successRate: mapped.length > 0 ? (successCount / mapped.length) * 100 : 0,
+            timeSaved: 0,
+            optimizationsSuggested: suggestionsCount,
+            errorsResolved: mapped.filter(r => !r.success).length,
+          })
+        }
+      } catch (err) {
+        console.error('Failed to load automations', err)
+        if (!cancelled) {
+          setAutomationRules([])
+          setMetrics({
+            rulesActive: 0,
+            totalExecutions: 0,
+            successRate: 0,
+            timeSaved: 0,
+            optimizationsSuggested: 0,
+            errorsResolved: 0,
+          })
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
-  }
 
-  const addNewRule = () => {
-    if (!newRuleName || !newRuleType) return
+    loadAutomations()
+    return () => { cancelled = true }
+  }, [workflowId])
 
-    const newRule: AutomationRule = {
-      id: `custom-${Date.now()}`,
-      name: newRuleName,
-      type: newRuleType as 'schedule' | 'trigger' | 'condition' | 'optimization',
-      enabled: true,
-      config: {},
-      success: false,
-      description: `Custom ${newRuleType} automation rule`
+  const toggleRule = async (ruleId: string) => {
+    const rule = automationRules.find(r => r.id === ruleId)
+    if (!rule) return
+    const nextEnabled = !rule.enabled
+
+    setAutomationRules(prev =>
+      prev.map(r => (r.id === ruleId ? { ...r, enabled: nextEnabled } : r))
+    )
+    setMetrics(prev => ({
+      ...prev,
+      rulesActive: prev.rulesActive + (nextEnabled ? 1 : -1),
+    }))
+
+    try {
+      await apiClient.updateAutomation(ruleId, { enabled: nextEnabled })
+    } catch {
+      // agents automation update may not exist for all rule sources
     }
 
-    setAutomationRules(prev => [...prev, newRule])
-    setNewRuleName('')
-    setNewRuleType('')
-    setShowNewRuleForm(false)
-
     toast({
-      title: 'Automation Rule Added',
-      description: `${newRuleName} has been created successfully`,
+      title: `Automation ${nextEnabled ? 'Enabled' : 'Disabled'}`,
+      description: `${rule.name} has been ${nextEnabled ? 'enabled' : 'disabled'}`,
     })
+    onAutomationUpdate?.({ ...rule, enabled: nextEnabled })
   }
 
-  const executeRule = (ruleId: string) => {
+  const addNewRule = async () => {
+    if (!newRuleName || !newRuleType) return
+
+    const payload = {
+      name: newRuleName,
+      type: newRuleType as AutomationRule['type'],
+      enabled: true,
+      config: {},
+      description: `Custom ${newRuleType} automation rule`,
+    }
+
+    try {
+      let saved: Record<string, unknown> | null = null
+      try {
+        const created = await apiClient.createAutomationRule(payload)
+        saved = created as unknown as Record<string, unknown>
+      } catch {
+        const res = await apiClient.createAutomation(payload)
+        saved = (res.data || {}) as Record<string, unknown>
+      }
+
+      const newRule = mapAutomationRule(
+        { ...payload, ...saved, success: false },
+        automationRules.length
+      )
+      setAutomationRules(prev => [...prev, newRule])
+      setMetrics(prev => ({
+        ...prev,
+        rulesActive: prev.rulesActive + 1,
+        totalExecutions: prev.totalExecutions + 1,
+      }))
+      setNewRuleName('')
+      setNewRuleType('')
+      setShowNewRuleForm(false)
+      toast({
+        title: 'Automation Rule Added',
+        description: `${newRuleName} has been created successfully`,
+      })
+    } catch (err) {
+      console.error(err)
+      toast({
+        title: 'Failed to create rule',
+        description: 'Could not create automation rule',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const executeRule = async (ruleId: string) => {
     const rule = automationRules.find(r => r.id === ruleId)
     if (!rule) return
 
-    // Simulate rule execution
-    setAutomationRules(prev => 
-      prev.map(r => 
-        r.id === ruleId 
-          ? { ...r, lastRun: 'Just now', success: true }
-          : r
+    try {
+      await apiClient.runAutomation(ruleId)
+      setAutomationRules(prev =>
+        prev.map(r =>
+          r.id === ruleId ? { ...r, lastRun: 'Just now', success: true } : r
+        )
       )
-    )
-
-    toast({
-      title: 'Automation Executed',
-      description: `${rule.name} has been executed successfully`,
-    })
+      toast({
+        title: 'Automation Executed',
+        description: `${rule.name} has been executed successfully`,
+      })
+    } catch (err) {
+      console.error(err)
+      toast({
+        title: 'Execution failed',
+        description: `Could not run ${rule.name}`,
+        variant: 'destructive',
+      })
+    }
   }
 
   const getTypeIcon = (type: string) => {
@@ -373,6 +452,19 @@ const WorkflowAutomationManager: React.FC<WorkflowAutomationManagerProps> = ({
 
           {/* Automation Rules List */}
           <div className="space-y-3">
+            {loading ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  Loading automation rules…
+                </CardContent>
+              </Card>
+            ) : automationRules.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  No automation rules yet. Add a rule to get started.
+                </CardContent>
+              </Card>
+            ) : null}
             {automationRules.map((rule) => (
               <Card key={rule.id} className={rule.enabled ? '' : 'opacity-60'}>
                 <CardContent className="pt-6">

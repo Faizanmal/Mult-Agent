@@ -29,28 +29,29 @@ class UserFeedbackViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """Submit feedback"""
         feedback_service = get_feedback_service()
-        
-        # Get data
-        feedback_type = serializer.validated_data.get('feedback_type')
-        rating = serializer.validated_data.get('rating')
-        thumbs_up = serializer.validated_data.get('thumbs_up')
-        comment = serializer.validated_data.get('comment', '')
-        message_id = serializer.validated_data.get('message')
-        session_id = serializer.validated_data.get('session')
-        agent_id = serializer.validated_data.get('agent')
-        
-        # Submit feedback
+        data = serializer.validated_data
+
+        create_kwargs = {
+            key: value
+            for key, value in {
+                'rating': data.get('rating'),
+                'thumbs_up': data.get('thumbs_up'),
+                'comment': data.get('comment', '') or '',
+                'message': data.get('message'),
+                'session': data.get('session'),
+                'agent': data.get('agent'),
+            }.items()
+            if value is not None
+        }
+        if 'comment' not in create_kwargs:
+            create_kwargs['comment'] = ''
+
         feedback = feedback_service.submit_feedback(
             user=self.request.user,
-            feedback_type=feedback_type,
-            rating=rating,
-            thumbs_up=thumbs_up,
-            comment=comment,
-            message_id=message_id,
-            session_id=session_id,
-            agent_id=agent_id
+            feedback_type=data.get('feedback_type'),
+            **create_kwargs,
         )
-        
+
         if feedback:
             serializer.instance = feedback
         else:

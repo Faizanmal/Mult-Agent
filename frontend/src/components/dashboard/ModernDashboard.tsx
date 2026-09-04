@@ -246,10 +246,10 @@ export function ModernDashboard() {
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 {[
-                  { label: 'Response Time', value: '45ms', trend: 'down', change: '-12%' },
-                  { label: 'Uptime', value: '99.9%', trend: 'up', change: '+0.1%' },
-                  { label: 'Accuracy', value: '97.8%', trend: 'up', change: '+2.3%' },
-                  { label: 'Throughput', value: '2.4k/s', trend: 'up', change: '+15%' }
+                  { label: 'Core focus', value: 'Agents', trend: 'up', change: 'MVP' },
+                  { label: 'Status', value: 'Beta', trend: 'up', change: 'Live' },
+                  { label: 'Inference', value: 'Groq', trend: 'up', change: 'Fast' },
+                  { label: 'Free tier', value: '100', trend: 'up', change: 'msgs/mo' }
                 ].map((metric, index) => (
                   <motion.div
                     key={index}

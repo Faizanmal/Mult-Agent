@@ -397,6 +397,8 @@ interface PricingCardProps {
   features: string[];
   highlighted?: boolean;
   className?: string;
+  ctaHref?: string;
+  ctaLabel?: string;
 }
 
 export function PricingCard({ 
@@ -405,7 +407,9 @@ export function PricingCard({
   period = '/month',
   features, 
   highlighted = false,
-  className 
+  className,
+  ctaHref = '/register',
+  ctaLabel = 'Get Started',
 }: PricingCardProps) {
   return (
     <motion.div
@@ -454,9 +458,10 @@ export function PricingCard({
         ))}
       </ul>
 
-      <motion.button
+      <motion.a
+        href={ctaHref}
         className={cn(
-          'w-full py-3 px-6 rounded-xl font-semibold transition-all',
+          'block w-full py-3 px-6 rounded-xl font-semibold transition-all text-center',
           highlighted
             ? 'bg-white text-indigo-600 hover:bg-gray-100'
             : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700'
@@ -464,8 +469,8 @@ export function PricingCard({
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
       >
-        Get Started
-      </motion.button>
+        {ctaLabel}
+      </motion.a>
     </motion.div>
   );
 }

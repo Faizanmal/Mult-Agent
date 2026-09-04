@@ -2,9 +2,10 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Bell,
   Search,
@@ -19,7 +20,9 @@ import {
   Command,
   Zap,
   Activity,
+  MessageSquareWarning,
 } from 'lucide-react';
+import { openReportIssueDialog } from '@/components/support/ReportIssueDialog';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -45,8 +48,31 @@ interface TopbarProps {
 
 export function Topbar({ sidebarCollapsed = false, onMenuClick }: TopbarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { isDark, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
   const [ , setSearchOpen] = useState(false);
+
+  const displayName =
+    user?.display_name ||
+    [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
+    user?.username ||
+    user?.email ||
+    'User';
+  const initials = displayName
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'U';
+  const roleLabel = user?.role
+    ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
+    : 'User';
+
+  const handleLogout = async () => {
+    await logout();
+    router.replace('/login');
+  };
 
   // Get page title from pathname
   const getPageTitle = () => {
@@ -240,14 +266,25 @@ export function Topbar({ sidebarCollapsed = false, onMenuClick }: TopbarProps) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="flex items-center gap-2 rounded-xl pl-2 pr-3">
               <div className="relative h-8 w-8">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500" />
-                <div className="absolute inset-0.5 rounded-full bg-background flex items-center justify-center">
-                  <span className="text-xs font-semibold">JD</span>
-                </div>
+                {user?.avatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={user.avatar}
+                    alt={displayName}
+                    className="h-8 w-8 rounded-full object-cover"
+                  />
+                ) : (
+                  <>
+                    <div className="absolute inset-0 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500" />
+                    <div className="absolute inset-0.5 rounded-full bg-background flex items-center justify-center">
+                      <span className="text-xs font-semibold">{initials}</span>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="hidden md:flex flex-col items-start">
-                <span className="text-sm font-medium">John Doe</span>
-                <span className="text-xs text-muted-foreground">Admin</span>
+                <span className="text-sm font-medium">{displayName}</span>
+                <span className="text-xs text-muted-foreground">{roleLabel}</span>
               </div>
               <ChevronDown className="hidden md:block h-4 w-4 text-muted-foreground" />
             </Button>
@@ -255,13 +292,13 @@ export function Topbar({ sidebarCollapsed = false, onMenuClick }: TopbarProps) {
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium">John Doe</p>
-                <p className="text-xs text-muted-foreground">john@example.com</p>
+                <p className="text-sm font-medium">{displayName}</p>
+                <p className="text-xs text-muted-foreground">{user?.email || 'No email'}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/profile" className="flex items-center gap-2">
+              <Link href="/settings" className="flex items-center gap-2">
                 <User className="h-4 w-4" />
                 Profile
               </Link>
@@ -273,13 +310,23 @@ export function Topbar({ sidebarCollapsed = false, onMenuClick }: TopbarProps) {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <Link href="/docs" className="flex items-center gap-2">
+              <Link href="/settings/billing" className="flex items-center gap-2">
                 <HelpCircle className="h-4 w-4" />
-                Help & Docs
+                Plans & usage
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer"
+              onClick={() => openReportIssueDialog()}
+            >
+              <MessageSquareWarning className="h-4 w-4 mr-2" />
+              Report an issue
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive focus:text-destructive">
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive cursor-pointer"
+              onClick={handleLogout}
+            >
               <LogOut className="h-4 w-4 mr-2" />
               Log out
             </DropdownMenuItem>

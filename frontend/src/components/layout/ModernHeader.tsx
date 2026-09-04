@@ -6,16 +6,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Menu, 
   X, 
-  Search, 
-  Bell, 
-  User, 
   Moon, 
   Sun,
-  ChevronDown,
   Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -36,10 +33,9 @@ export function ModernHeader() {
   }, []);
 
   const navItems = [
-    { name: 'Dashboard', href: '#dashboard' },
-    { name: 'Agents', href: '#agents' },
-    { name: 'Workflows', href: '#workflows' },
-    { name: 'Analytics', href: '#analytics' },
+    { name: 'Features', href: '#features' },
+    { name: 'Demo', href: '#chat' },
+    { name: 'Pricing', href: '#pricing' },
   ];
 
   return (
@@ -57,29 +53,31 @@ export function ModernHeader() {
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <motion.div 
-            className="flex items-center gap-2"
-            whileHover={{ scale: 1.05 }}
-          >
-            <div className="relative">
-              <motion.div
-                className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center"
-                animate={{ 
-                  boxShadow: [
-                    '0 0 20px rgba(99, 102, 241, 0.3)',
-                    '0 0 40px rgba(99, 102, 241, 0.5)',
-                    '0 0 20px rgba(99, 102, 241, 0.3)'
-                  ]
-                }}
-                transition={{ duration: 2, repeat: Infinity }}
-              >
-                <Sparkles className="w-6 h-6 text-white" />
-              </motion.div>
-            </div>
-            <span className="text-xl font-bold text-gradient">
-              MultiAgent AI
-            </span>
-          </motion.div>
+          <Link href="/" className="flex items-center gap-2">
+            <motion.div 
+              className="flex items-center gap-2"
+              whileHover={{ scale: 1.05 }}
+            >
+              <div className="relative">
+                <motion.div
+                  className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center"
+                  animate={{ 
+                    boxShadow: [
+                      '0 0 20px rgba(99, 102, 241, 0.3)',
+                      '0 0 40px rgba(99, 102, 241, 0.5)',
+                      '0 0 20px rgba(99, 102, 241, 0.3)'
+                    ]
+                  }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                >
+                  <Sparkles className="w-6 h-6 text-white" />
+                </motion.div>
+              </div>
+              <span className="text-xl font-bold text-gradient">
+                MultiAgent AI
+              </span>
+            </motion.div>
+          </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-1">
@@ -102,35 +100,13 @@ export function ModernHeader() {
 
           {/* Right Actions */}
           <div className="hidden md:flex items-center gap-2">
-            {/* Search */}
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              className="p-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            >
-              <Search className="w-5 h-5" />
-            </motion.button>
-
-            {/* Notifications */}
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              className="relative p-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            >
-              <Bell className="w-5 h-5" />
-              <motion.span
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"
-              />
-            </motion.button>
-
             {/* Theme Toggle */}
             <motion.button
               whileHover={{ scale: 1.1, rotate: 180 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => setIsDark(!isDark)}
               className="p-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label="Toggle theme"
             >
               <AnimatePresence mode="wait">
                 {isDark ? (
@@ -157,16 +133,25 @@ export function ModernHeader() {
               </AnimatePresence>
             </motion.button>
 
-            {/* User Menu */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/30"
-            >
-              <User className="w-4 h-4" />
-              <span className="text-sm font-medium">Account</span>
-              <ChevronDown className="w-4 h-4" />
-            </motion.button>
+            <Link href="/login">
+              <motion.span
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="inline-flex items-center px-4 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 font-medium transition-all"
+              >
+                Sign In
+              </motion.span>
+            </Link>
+
+            <Link href="/register">
+              <motion.span
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="inline-flex items-center px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/30 text-sm font-medium"
+              >
+                Get Started
+              </motion.span>
+            </Link>
           </div>
 
           {/* Mobile Menu Button */}
@@ -227,15 +212,21 @@ export function ModernHeader() {
                   </motion.a>
                 ))}
 
-                <div className="pt-4 border-t border-gray-200 dark:border-gray-800">
-                  <motion.button
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.4 }}
-                    className="w-full px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-medium"
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-800 space-y-2">
+                  <Link
+                    href="/login"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="block w-full px-4 py-2 rounded-lg text-center text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 font-medium"
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    href="/register"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="block w-full px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-medium text-center"
                   >
                     Get Started
-                  </motion.button>
+                  </Link>
                 </div>
               </div>
             </motion.div>

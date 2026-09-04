@@ -33,7 +33,14 @@ import {
   Target,
   Download,
   RefreshCw,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react'
+import {
+  getAnalyticsDashboard,
+  getSystemPerformance,
+  getPerformanceMetrics,
+} from '@/lib/api'
 
 interface PerformanceMetric {
   timestamp: string
@@ -72,127 +79,127 @@ const AnalyticsDashboard: React.FC = () => {
   const [timeRange, setTimeRange] = useState<string>('24h')
   const [activeTab, setActiveTab] = useState('overview')
   const [loading, setLoading] = useState(false)
-  
-  // Mock data - in real app, this would come from API
+  const [error, setError] = useState<string | null>(null)
   const [performanceData, setPerformanceData] = useState<PerformanceMetric[]>([])
-  const agentStats: AgentStats[] = [
-    {
-      agent_id: '1',
-      name: 'Vision Analyst',
-      type: 'vision',
-      total_tasks: 145,
-      success_rate: 94.5,
-      avg_execution_time: 2.3,
-      avg_accuracy: 89.2,
-      status: 'active',
-      last_active: '2 minutes ago'
-    },
-    {
-      agent_id: '2',
-      name: 'Language Processor',
-      type: 'language',
-      total_tasks: 203,
-      success_rate: 97.1,
-      avg_execution_time: 1.8,
-      avg_accuracy: 92.4,
-      status: 'active',
-      last_active: '1 minute ago'
-    },
-    {
-      agent_id: '3',
-      name: 'Data Orchestrator',
-      type: 'orchestrator',
-      total_tasks: 89,
-      success_rate: 91.2,
-      avg_execution_time: 3.1,
-      avg_accuracy: 87.6,
-      status: 'idle',
-      last_active: '15 minutes ago'
-    },
-    {
-      agent_id: '4',
-      name: 'Action Executor',
-      type: 'action',
-      total_tasks: 167,
-      success_rate: 89.8,
-      avg_execution_time: 2.7,
-      avg_accuracy: 85.3,
-      status: 'active',
-      last_active: '3 minutes ago'
+  const [agentStats, setAgentStats] = useState<AgentStats[]>([])
+  const [workflowStats, setWorkflowStats] = useState<WorkflowStats[]>([])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const [dashRes, sysRes, perfRes] = await Promise.allSettled([
+        getAnalyticsDashboard(timeRange === '1h' ? '24h' : timeRange),
+        getSystemPerformance(),
+        getPerformanceMetrics(),
+      ])
+
+      const dashboard =
+        dashRes.status === 'fulfilled' && dashRes.value && typeof dashRes.value === 'object'
+          ? (dashRes.value as Record<string, unknown>)
+          : {}
+      const systemPerf =
+        sysRes.status === 'fulfilled' && sysRes.value && typeof sysRes.value === 'object'
+          ? (sysRes.value as Record<string, unknown>)
+          : {}
+      const perfMetrics =
+        perfRes.status === 'fulfilled' && perfRes.value && typeof perfRes.value === 'object'
+          ? (perfRes.value as Record<string, unknown>)
+          : {}
+
+      const agentMetrics = (dashboard.agent_metrics as Record<string, unknown>) || {}
+      const individual = (agentMetrics.individual_metrics as Record<string, unknown>) || {}
+      const agents: AgentStats[] = Object.values(individual).map((raw, index) => {
+        const agent = (raw || {}) as Record<string, unknown>
+        const info = (agent.agent_info || {}) as Record<string, unknown>
+        const tasks = (agent.tasks || {}) as Record<string, unknown>
+        const total = Number(tasks.total || 0)
+        const completed = Number(tasks.completed || 0)
+        return {
+          agent_id: String(info.id || index),
+          name: String(info.name || `Agent ${index + 1}`),
+          type: String(info.type || 'unknown'),
+          total_tasks: total,
+          success_rate: total > 0 ? (completed / total) * 100 : Number(agent.efficiency_score || 0) * 100,
+          avg_execution_time: Number(
+            (agent.performance as Record<string, unknown>)?.avg_execution_time ||
+              systemPerf.avg_response_time ||
+              0
+          ),
+          avg_accuracy: Number(agent.efficiency_score || 0) * 100,
+          status: (['active', 'idle', 'error'].includes(String(info.status))
+            ? String(info.status)
+            : 'idle') as AgentStats['status'],
+          last_active: String(agent.last_active || '—'),
+        }
+      })
+      setAgentStats(agents)
+
+      const taskAnalytics = (dashboard.task_analytics as Record<string, unknown>) || {}
+      const typeStats = Array.isArray(taskAnalytics.task_type_distribution)
+        ? taskAnalytics.task_type_distribution
+        : Array.isArray(taskAnalytics.by_type)
+          ? taskAnalytics.by_type
+          : []
+      setWorkflowStats(
+        (typeStats as Record<string, unknown>[]).map((row, i) => ({
+          workflow_id: `type-${i}`,
+          name: String(row.task_type || row.name || `Workflow ${i + 1}`),
+          executions: Number(row.count || 0),
+          success_rate: Number(row.success_rate || 0) * (Number(row.success_rate) <= 1 ? 100 : 1),
+          avg_duration: Number(row.avg_duration || 0),
+          last_run: '—',
+          complexity_score: Number(row.complexity_score || 0),
+        }))
+      )
+
+      const trends = (dashboard.performance_trends as Record<string, unknown>) || {}
+      const responseTimes = Array.isArray(trends.response_times) ? trends.response_times : []
+      if (responseTimes.length > 0) {
+        setPerformanceData(
+          (responseTimes as Record<string, unknown>[]).map((row, i) => ({
+            timestamp: String(row.date || row.period || new Date().toISOString()),
+            agent_id: 'system',
+            task_type: 'all',
+            execution_time: Number(row.avg_response_time || row.value || 0) / 1000,
+            success_rate: Number(row.success_rate || 90),
+            accuracy_score: Number(row.accuracy || 90),
+            memory_usage: Number(row.memory || systemPerf.memory_usage || 0),
+            cpu_usage: Number(row.cpu || systemPerf.cpu_usage || perfMetrics.cpu_usage || 0),
+          }))
+        )
+      } else {
+        setPerformanceData([])
+      }
+
+      if (dashRes.status === 'rejected' && sysRes.status === 'rejected') {
+        setError('Failed to load analytics')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load analytics')
+    } finally {
+      setLoading(false)
     }
-  ]
-  
-  const workflowStats: WorkflowStats[] = [
-    {
-      workflow_id: 'wf-1',
-      name: 'Content Analysis Pipeline',
-      executions: 45,
-      success_rate: 93.3,
-      avg_duration: 12.4,
-      last_run: '5 minutes ago',
-      complexity_score: 7.2
-    },
-    {
-      workflow_id: 'wf-2', 
-      name: 'Multi-Agent Research',
-      executions: 23,
-      success_rate: 87.0,
-      avg_duration: 28.1,
-      last_run: '2 hours ago',
-      complexity_score: 9.1
-    },
-    {
-      workflow_id: 'wf-3',
-      name: 'Data Processing Flow',
-      executions: 78,
-      success_rate: 95.1,
-      avg_duration: 8.7,
-      last_run: '1 hour ago',
-      complexity_score: 5.4
-    }
-  ]
+  }
 
   useEffect(() => {
-    // Generate mock performance data
-    const generatePerformanceData = () => {
-      const data = []
-      const now = new Date()
-      
-      for (let i = 23; i >= 0; i--) {
-        const timestamp = new Date(now.getTime() - i * 60 * 60 * 1000)
-        data.push({
-          timestamp: timestamp.toISOString(),
-          agent_id: '1',
-          task_type: 'vision',
-          execution_time: Math.random() * 3 + 1,
-          success_rate: Math.random() * 10 + 90,
-          accuracy_score: Math.random() * 15 + 85,
-          memory_usage: Math.random() * 30 + 40,
-          cpu_usage: Math.random() * 40 + 20
-        })
-      }
-      return data
-    }
-    
-    setPerformanceData(generatePerformanceData())
+    loadData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRange])
 
   const refreshData = async () => {
-    setLoading(true)
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    setLoading(false)
+    await loadData()
   }
 
   const exportData = () => {
-    const exportData = {
+    const payload = {
       agents: agentStats,
       workflows: workflowStats,
       performance: performanceData,
       exported_at: new Date().toISOString()
     }
     
-    const dataStr = JSON.stringify(exportData, null, 2)
+    const dataStr = JSON.stringify(payload, null, 2)
     const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
     const exportFileDefaultName = `analytics_${new Date().toISOString().split('T')[0]}.json`
     
@@ -242,13 +249,17 @@ const AnalyticsDashboard: React.FC = () => {
             </SelectContent>
           </Select>
           
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             onClick={refreshData}
             disabled={loading}
           >
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
             Refresh
           </Button>
           
@@ -258,6 +269,18 @@ const AnalyticsDashboard: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <Card>
+          <CardContent className="p-4 text-sm text-destructive flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            {error}
+            <Button variant="outline" size="sm" className="ml-auto" onClick={refreshData}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Key Metrics Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

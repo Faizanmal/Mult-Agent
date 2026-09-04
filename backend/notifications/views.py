@@ -82,12 +82,29 @@ class NotificationRuleListCreateView(generics.ListCreateAPIView):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def notification_stats_view(request):
-    """Get notification statistics"""
+    """Get notification statistics from real campaign aggregates."""
+    from django.db.models import Sum
+
+    campaigns = NotificationCampaign.objects.filter(user=request.user)
+    aggregates = campaigns.aggregate(
+        total_sent=Sum('sent_count'),
+        total_delivered=Sum('delivered_count'),
+        total_opened=Sum('opened_count'),
+        total_clicked=Sum('clicked_count'),
+    )
+    total_sent = aggregates['total_sent'] or 0
+    total_delivered = aggregates['total_delivered'] or 0
+    total_opened = aggregates['total_opened'] or 0
+    total_clicked = aggregates['total_clicked'] or 0
+
+    open_rate = (total_opened / total_delivered * 100) if total_delivered else 0
+    click_rate = (total_clicked / total_delivered * 100) if total_delivered else 0
+
     return Response({
         'stats': {
-            'total_sent': 1000,
-            'open_rate': 25.5,
-            'click_rate': 3.2
+            'total_sent': total_sent,
+            'open_rate': round(open_rate, 2),
+            'click_rate': round(click_rate, 2),
         }
     })
 
